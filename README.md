@@ -2,7 +2,7 @@
 
 Un launcher **Minecraft complet et moderne** offrant une expérience utilisateur exceptionnelle avec authentification Microsoft, gestion des profils, optimisation des ressources, et bien plus encore!
 
-![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.9.17-blue.svg)
 ![License](https://img.shields.io/badge/license-CLv1-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
@@ -69,12 +69,6 @@ Un launcher **Minecraft complet et moderne** offrant une expérience utilisateur
 2. Acceptez les conditions d'utilisation
 3. Créez ou sélectionnez un profil
 4. Lancez le jeu !
-
-### Gestion des profils
-- **Créer** : Cliquez sur "+ Créer un profil"
-- **Modifier** : Cliquez sur ✏️ à côté du profil
-- **Dupliquer** : Cliquez sur 📋 pour copier rapidement un profil
-- **Supprimer** : Cliquez sur 🗑️ (non disponible pour le profil par défaut)
 
 ### Gestion des mods
 1. Allez à l'onglet **"Mods"**
@@ -177,7 +171,7 @@ En utilisant ce logiciel, vous acceptez les termes de cette licence.
 
 ## 📈 Feuille de route
 
-### v3.0.0 ✅ (Actuelle)
+### v1.9.17 ✅ (Actuelle)
 - ✅ Authentification Microsoft
 - ✅ Gestion des profils
 - ✅ Gestionnaire de mods
@@ -215,5 +209,6 @@ Rejoignez notre communauté et aidez-nous à améliorer CraftLauncher !
 [⭐ Star sur GitHub](https://github.com/pharos-off/minecraft-launcher) • [🐛 Signaler un bug](https://github.com/pharos-off/minecraft-launcher/issues) • [💬 Discuter](https://github.com/pharos-off/minecraft-launcher/discussions)
 
 </div>
+
 
 
