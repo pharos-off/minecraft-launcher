@@ -54,11 +54,6 @@ Un launcher **Minecraft complet et moderne** offrant une expérience utilisateur
 
 ## 🚀 Installation
 
-### Prérequis
-- **Node.js** 14+ et **npm**
-- **Electron** (installé automatiquement)
-- **Windows, macOS ou Linux**
-
 ### Depuis les releases
 
 1. Téléchargez la dernière version depuis [GitHub Releases](https://github.com/pharos-off/minecraft-launcher/releases)
@@ -220,4 +215,5 @@ Rejoignez notre communauté et aidez-nous à améliorer CraftLauncher !
 [⭐ Star sur GitHub](https://github.com/pharos-off/minecraft-launcher) • [🐛 Signaler un bug](https://github.com/pharos-off/minecraft-launcher/issues) • [💬 Discuter](https://github.com/pharos-off/minecraft-launcher/discussions)
 
 </div>
+
 
