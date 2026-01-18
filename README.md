@@ -171,7 +171,7 @@ En utilisant ce logiciel, vous acceptez les termes de cette licence.
 
 ## 📈 Feuille de route
 
-### v1.9.17 ✅ (Actuelle)
+### v2.5.2 ✅ (Actuelle)
 - ✅ Authentification Microsoft
 - ✅ Gestion des profils
 - ✅ Gestionnaire de mods
@@ -209,6 +209,7 @@ Rejoignez notre communauté et aidez-nous à améliorer CraftLauncher !
 [⭐ Star sur GitHub](https://github.com/pharos-off/minecraft-launcher) • [🐛 Signaler un bug](https://github.com/pharos-off/minecraft-launcher/issues) • [💬 Discuter](https://github.com/pharos-off/minecraft-launcher/discussions)
 
 </div>
+
 
 
 
