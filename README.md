@@ -103,52 +103,11 @@ Avez-vous trouvé un bug ou avez une suggestion ?
 
 ## 📄 Licence
 
-### CraftLauncher License v1 (CLv1)
+### [CraftLauncher License v1 (CLv1)](./LICENSE)
 
 **Copyright © 2026 Eloan**
 
 CraftLauncher est fourni sous la **Licence CraftLauncher v1 (CLv1)**, une licence personnalisée qui combine les droits de la licence MIT avec des conditions supplémentaires spécifiques à ce projet.
-
-#### Conditions principales :
-
-✅ **Vous pouvez :**
-- Utiliser CraftLauncher à titre personnel ou commercial
-
-❌ **Vous ne pouvez pas :**
-- Retirer les mentions de copyright ou de licence
-- Utiliser le nom "CraftLauncher" pour un produit concurrent
-- Prétendre être l'auteur original
-- Tenir les auteurs responsables des dommages causés
-- Modifier le code source
-- Distribuer le code modifié
-- Vendre des versions modifiées
-- Utiliser à des fins éducatives
-
-#### Texte complet de la licence CLv1
-
-```
-Licence d’utilisation – CraftLauncher
-
-Copyright © 2026 Eloan. Tous droits réservés.
-
-Ce logiciel est un logiciel propriétaire.
-
-L’auteur accorde à l’utilisateur une licence personnelle, non exclusive,
-non transférable, permettant uniquement l’utilisation du logiciel.
-
-Il est strictement interdit de :
-- copier, redistribuer ou revendre le logiciel
-- modifier, adapter ou créer des œuvres dérivées
-- décompiler, désassembler ou tenter d’extraire le code source
-- publier tout ou partie du code ou du logiciel
-
-Tous les droits non expressément accordés sont réservés à l’auteur.
-
-Toute utilisation non autorisée constitue une violation du Code
-de la propriété intellectuelle et peut donner lieu à des poursuites.
-
-En utilisant ce logiciel, vous acceptez les termes de cette licence.
-```
 
 ---
 
@@ -202,6 +161,7 @@ Rejoignez notre communauté et aidez-nous à améliorer CraftLauncher !
 [⭐ Star sur GitHub](https://github.com/pharos-off/minecraft-launcher) • [🐛 Signaler un bug](https://github.com/pharos-off/minecraft-launcher/issues) • [💬 Discuter](https://github.com/pharos-off/minecraft-launcher/discussions)
 
 </div>
+
 
 
 
