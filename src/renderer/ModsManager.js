@@ -4,6 +4,7 @@
  */
 
 const { ipcRenderer } = require('electron');
+const LauncherVersion = require('../main/launcher-version.js');
 
 class ModsManager {
   constructor(app) {
@@ -23,10 +24,10 @@ class ModsManager {
       <div class="view-container" style="padding: 40px;">
         <div class="view-header" style="margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <h1 class="view-title" style="display: flex; align-items: center; gap: 12px;">${icons.mods} Gestionnaire de Mods</h1>
-            <p style="color: #94a3b8; margin-top: 10px;">${mods.length} mod(s) installé(s) • ${enabledModsCount} activé(s)</p>
+            <h1 class="view-title" style="display: flex; align-items: center; gap: 12px;"><i class="bi bi-puzzle"></i> Mods Manager</h1>
+            <p style="color: #94a3b8; margin-top: 10px;">${mods.length} mod(s) installed • ${enabledModsCount} enabled</p>
           </div>
-          <button id="btn-import-mod" class="btn-primary" style="white-space: nowrap; padding: 8px 16px; font-size: 14px; width: auto; max-width: 120px;">+ Importer</button>
+          <button id="btn-import-mod" class="btn-primary" style="white-space: nowrap; padding: 8px 16px; font-size: 14px; width: auto; max-width: 120px;">+ Import</button>
         </div>
 
         ${mods.length === 0 ? this.renderEmpty() : this.renderModsList(mods)}
@@ -44,8 +45,8 @@ class ModsManager {
       <div style="max-width: 1000px; margin-bottom: 30px;">
         <div style="background: rgba(30, 41, 59, 0.5); border: 2px dashed rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 60px 20px; text-align: center;">
           <div style="font-size: 24px; margin-bottom: 16px;">${icons.download}</div>
-          <h3 style="color: #e2e8f0; margin: 0 0 8px 0; font-size: 18px;">Aucun mod installé</h3>
-          <p style="color: #94a3b8; margin: 0;">Importez vos premiers mods pour améliorer votre expérience Minecraft</p>
+          <h3 style="color: #e2e8f0; margin: 0 0 8px 0; font-size: 18px;">No mods installed</h3>
+          <p style="color: #94a3b8; margin: 0;">Import your first mods to improve your Minecraft experience</p>
         </div>
       </div>
     `;
@@ -74,16 +75,16 @@ class ModsManager {
           <input type="checkbox" class="mod-toggle" data-mod-id="${mod.id}" ${mod.enabled ? 'checked' : ''} style="width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;">
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <span style="flex-shrink: 0;">${mod.enabled ? icons.check : icons.x}</span>
+              <span style="flex-shrink: 0;">${mod.enabled ? '✅' : '❌'}</span>
               <span style="overflow: hidden; text-overflow: ellipsis;">${mod.name}</span>
             </div>
             <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
-              Version: ${mod.version || 'N/A'} • Taille: ${mod.size || 'N/A'}
+              Version: ${mod.version || 'N/A'} • Size: ${mod.size || 'N/A'}
             </div>
           </div>
         </div>
-        <button class="btn-delete-mod" data-mod-id="${mod.id}" title="Supprimer ce mod" style="background: none; border: none; cursor: pointer; color: #ef4444; padding: 8px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; flex-shrink: 0;">
-          ${icons.trash}
+        <button class="btn-delete-mod" data-mod-id="${mod.id}" title="Delete this mod" style="background: none; border: none; cursor: pointer; color: #ef4444; padding: 8px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; flex-shrink: 0;">
+          🗑️
         </button>
       </div>
     `;
@@ -196,14 +197,14 @@ class ModsManager {
         await this.app.render();
       }
     } catch (error) {
-      console.error('❌ Erreur import:', error);
+      console.error('❌ Import error:', error);
     }
   }
 
   async handleDelete(modId) {
     console.log('🗣️ Begin mod deletion:', modId);
     
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce mod ?')) {
+    if (!confirm('Are you sure you want to delete this mod?')) {
       console.log('❌ Deletion cancelled');
       return;
     }
@@ -219,16 +220,39 @@ class ModsManager {
         await this.app.render();
       } else {
         console.error('❌ Deletion failed:', result?.message);
-        alert(`Erreur: ${result?.message || 'Impossible de supprimer le mod'}`);
+        alert(`Error: ${result?.message || 'Unable to delete mod'}`);
       }
     } catch (error) {
-      console.error('❌ Erreur lors de la suppression:', error);
-      alert(`Erreur: ${error.message}`);
+      console.error('❌ Deletion error:', error);
+      alert(`Error: ${error.message}`);
     }
   }
 
   async handleToggle(modId, enabled) {
-    await ipcRenderer.invoke('toggle-mod', { modId, enabled });
+    // Update UI instantly
+    const modItem = document.querySelector(`[data-mod-id="${modId}"]`);
+    if (modItem) {
+      const toggle = modItem.querySelector('.mod-toggle');
+      const statusIcon = modItem.querySelector('span[style*="flex-shrink: 0"]');
+      
+      if (toggle) toggle.checked = enabled;
+      if (statusIcon) statusIcon.textContent = enabled ? '✅' : '❌';
+    }
+    
+    // Save to backend
+    const result = await ipcRenderer.invoke('toggle-mod', { modId, enabled });
+    
+    // If backend failed, revert UI
+    if (!result.success) {
+      if (modItem) {
+        const toggle = modItem.querySelector('.mod-toggle');
+        const statusIcon = modItem.querySelector('span[style*="flex-shrink: 0"]');
+        
+        if (toggle) toggle.checked = !enabled;
+        if (statusIcon) statusIcon.textContent = !enabled ? '✅' : '❌';
+      }
+      console.error('❌ Error toggling mod:', result.message);
+    }
   }
 
   /**

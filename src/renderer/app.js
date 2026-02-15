@@ -1,6 +1,8 @@
 const { ipcRenderer } = require('electron');
 const LauncherFeatures = require('./features.js');
-const ModsManager = require('./ModsManager');
+const ModsManager = require('./ModsManager.js');
+const LauncherVersion = require('../main/launcher-version.js');
+const KeyboardShortcuts = require('../main/keyboard-shortcuts.js');
 //const MusicPlayer = require('./radio-player.js');
 
 // Icônes SVG inline
@@ -53,7 +55,8 @@ class CraftLauncherApp {
     this.viewChangeListener = null; // ✅ Référence du listener pour cleanup
     this.globalMusicPlayer = null; // ✅ Instance globale du lecteur de musique
     this.modsManager = new ModsManager(this);
-    
+    this.shortcuts = new KeyboardShortcuts(this);
+  
     // ✅ THÈME PERSONNALISÉ
     this.theme = 'normal'; // 'normal', 'blanc', 'noir', 'custom'
     this.customTheme = {
@@ -62,6 +65,7 @@ class CraftLauncherApp {
       backgroundColor: '#0f172a',
       textColor: '#e2e8f0',
       accentColor: '#10b981'
+
     };
 
     this.popularServers = [
@@ -74,6 +78,7 @@ class CraftLauncherApp {
 
     this.init();
   }
+
 
   /**
    * ✅ NETTOYER LES ANCIENS LISTENERS
@@ -153,9 +158,9 @@ class CraftLauncherApp {
         // Retirer du DOM après la transition
         setTimeout(() => {
           loadingScreen.style.display = 'none';
-        }, 600);
+        }, 6000);
       }
-    }, 800);
+    }, 6000);
     
     setInterval(() => this.updateFriendsStatus(), 30000);
   }
@@ -190,9 +195,14 @@ class CraftLauncherApp {
 
   setupEventListeners() {
     document.addEventListener('click', (e) => {
-      if (e.target.id === 'minimize-btn') ipcRenderer.send('minimize-window');
-      else if (e.target.id === 'maximize-btn') ipcRenderer.send('maximize-window');
-      else if (e.target.id === 'close-btn') ipcRenderer.send('close-window');
+      // ✅ Boutons titlebar - utiliser .closest() pour gérer les clics sur les SVG enfants
+      const minimizeBtn = e.target.closest('#minimize-btn');
+      const maximizeBtn = e.target.closest('#maximize-btn');
+      const closeBtn = e.target.closest('#close-btn');
+      
+      if (minimizeBtn) ipcRenderer.send('minimize-window');
+      else if (maximizeBtn) ipcRenderer.send('maximize-window');
+      else if (closeBtn) ipcRenderer.send('close-window');
       //else if (e.target.id === 'radio-player-btn') this.openRadioPlayer();
       else if (e.target.classList.contains('help-tab-btn')) {
         // Récupérer l'ID de l'onglet et afficher le contenu correspondant
@@ -220,17 +230,22 @@ class CraftLauncherApp {
     });
 
     // ✅ LISTENER POUR LES MISES À JOUR DE SETTINGS
-    this.addTrackedListener('settings-updated', (event, newSettings) => {
-      this.settings = newSettings;
-      // Actualiser la vue si on est à l'accueil
-      if (this.currentView === 'main') {
-        this.renderContentAsync();
+    this.addTrackedListener('settings-updated', (event, settings) => {
+      this.settings = settings;
+      
+      // Mettre à jour le badge RAM
+      const ramBadge = document.getElementById('ram-badge-display');
+      if (ramBadge) {
+        ramBadge.textContent = `${settings.ramAllocation || 4} GB RAM`;
       }
     });
   }
 
   render() {
     const app = document.getElementById('app');
+    if (!this.authData) {
+      this.currentView = 'login';
+    }
     if (this.currentView === 'login') {
       app.innerHTML = this.renderLogin();
       this.setupLoginEvents();
@@ -452,89 +467,87 @@ class CraftLauncherApp {
     }
   }
 renderMainLayout() {
-    const headUrl = this.playerHead?.success 
-      ? this.playerHead.url 
-      : 'https://via.placeholder.com/128/1e293b/64748b?text=👤';
-    
     return `
       <div class="titlebar">
-        <div class="titlebar-title">CraftLauncher</div>
+        <div class="titlebar-title">${LauncherVersion.getName()}</div>
         <div class="titlebar-buttons">
-          <button class="titlebar-button" id="minimize-btn">−</button>
-          <button class="titlebar-button" id="maximize-btn">□</button>
-          <button class="titlebar-button close" id="close-btn">×</button>
+          <button class="titlebar-button minimize" id="minimize-btn" title="Réduire">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+          <button class="titlebar-button maximize" id="maximize-btn" title="Agrandir">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+            </svg>
+          </button>
+          <button class="titlebar-button close" id="close-btn" title="Fermer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
       </div>
 
       <div class="main-layout">
         <div class="sidebar">
-          <div class="sidebar-header">
-            <img 
-              src="${headUrl}" 
-              class="player-head" 
-              alt="Player Head"
-              style="width: 48px; height: 48px; border-radius: 4px; object-fit: cover;"
-              onerror="this.src='https://via.placeholder.com/48/334155/94a3b8?text=👤'"
-            >
-            <div style="flex: 1;">
-              <div class="brand-name">CraftLauncher</div>
-              <div class="brand-user">${this.authData.type === 'microsoft' ? '🪟' : '🎮'} ${this.authData.username}</div>
-            </div>
+          <!-- ✅ HEADER SANS PHOTO - Juste le nom -->
+          <div class="sidebar-header" style="padding: 24px 20px; border-bottom: 1px solid rgba(99, 102, 241, 0.1);">
+            <div class="brand-name" style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">${LauncherVersion.getName()}</div>
           </div>
 
           <div class="sidebar-menu">
             <div>
               <button class="menu-item ${this.currentView === 'main' ? 'active' : ''}" data-view="main">
-                <span class="menu-icon">${icons.home}</span> Accueil
+                <span class="menu-icon"><i class="bi bi-house-door"></i></span> Accueil
               </button>
               <button class="menu-item ${this.currentView === 'friends' ? 'active' : ''}" data-view="friends">
-                <span class="menu-icon">${icons.users}</span> Amis
+                <span class="menu-icon"><i class="bi bi-people"></i></span> Amis
               </button>
               <button class="menu-item ${this.currentView === 'servers' ? 'active' : ''}" data-view="servers">
-                <span class="menu-icon">${icons.search}</span> Versions
+                <span class="menu-icon"><i class="bi bi-search"></i></span> Versions
               </button>
               <button class="menu-item ${this.currentView === 'partners' ? 'active' : ''}" data-view="partners">
-                <span class="menu-icon">${icons.handshake}</span> Partenaires
+                <span class="menu-icon"><i class="bi bi-star"></i></span> Partenaires
               </button>
               <button class="menu-item ${this.currentView === 'shop' ? 'active' : ''}" data-view="shop">
-                <span class="menu-icon">${icons.shoppingCart}</span> Shop
+                <span class="menu-icon"><i class="bi bi-bag-check"></i></span> Shop
               </button>
             </div>
 
-            <!-- ✨ NOUVELLES FEATURES -->
             <div style="border-top: 1px solid rgba(99, 102, 241, 0.1); margin: 12px 0; padding-top: 12px;">
               <button class="menu-item ${this.currentView === 'stats' ? 'active' : ''}" data-view="stats">
-                <span class="menu-icon">${icons.barChart}</span> Statistiques
+                <span class="menu-icon"><i class="bi bi-bar-chart"></i></span> Statistiques
               </button>
               <button class="menu-item ${this.currentView === 'news' ? 'active' : ''}" data-view="news">
-                <span class="menu-icon">${icons.newspaper}</span> Actualités
+                <span class="menu-icon"><i class="bi bi-newspaper"></i></span> Actualités
               </button>
               <button class="menu-item ${this.currentView === 'versions' ? 'active' : ''}" data-view="versions" disabled style="opacity: 0.5; cursor: not-allowed;">
-                <span class="menu-icon">${icons.globe}</span> Serveurs
+                <span class="menu-icon"><i class="bi bi-globe"></i></span> Serveurs
               </button>
               <button class="menu-item ${this.currentView === 'mods' ? 'active' : ''}" data-view="mods">
-                <span class="menu-icon">${icons.mods}</span> Mods
+                <span class="menu-icon"><i class="bi bi-puzzle"></i></span> Mods
               </button>
               <button class="menu-item ${this.currentView === 'theme' ? 'active' : ''}" data-view="theme">
-                <span class="menu-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="4" r="1"/><circle cx="5" cy="20" r="1"/><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/></svg></span> Thème
+                <span class="menu-icon"><i class="bi bi-palette"></i></span> Thème
               </button>
             </div>
 
             <div style="border-top: 1px solid rgba(99, 102, 241, 0.1); margin: 12px 0; padding-top: 12px;">
               <button class="menu-item ${this.currentView === 'help' ? 'active' : ''}" data-view="help">
-                <span class="menu-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg></span> Aide & Support
+                <span class="menu-icon"><i class="bi bi-question-circle"></i></span> Aide & Support
               </button>
             </div>
 
             <div style="border-top: 1px solid rgba(99, 102, 241, 0.1); margin: 12px 0; padding-top: 12px;">
               <button class="menu-item" data-view="settings">
-                <span class="menu-icon">${icons.settings}</span> Paramètres
+                <span class="menu-icon"><i class="bi bi-gear"></i></span> Paramètres
               </button>
             </div>
           </div>
 
-          <div class="sidebar-footer">
-          </div>
+          <div class="sidebar-footer"></div>
         </div>
 
         <div class="main-content" id="main-content-view">
@@ -547,11 +560,24 @@ renderMainLayout() {
   renderLogin() {
     return `
       <div class="titlebar">
-        <div class="titlebar-title">CraftLauncher</div>
+        <div class="titlebar-title">${LauncherVersion.getName()}</div>
         <div class="titlebar-buttons">
-          <button class="titlebar-button" id="minimize-btn">−</button>
-          <button class="titlebar-button" id="maximize-btn">□</button>
-          <button class="titlebar-button close" id="close-btn">×</button>
+          <button class="titlebar-button minimize" id="minimize-btn" title="Réduire">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+          <button class="titlebar-button maximize" id="maximize-btn" title="Agrandir">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+            </svg>
+          </button>
+          <button class="titlebar-button close" id="close-btn" title="Fermer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -783,7 +809,7 @@ renderMainLayout() {
         </div>
 
         <div class="login-card">
-          <h1 class="login-title">CraftLauncher</h1>
+          <h1 class="login-title">${LauncherVersion.getName()}</h1>
           <p class="login-subtitle">L'expérience Minecraft ultime</p>
 
           <button id="ms-login-btn" class="login-button login-button-primary">
@@ -811,7 +837,7 @@ renderMainLayout() {
           </div>
 
           <div class="login-footer">
-            <p class="login-version">CraftLauncher v3.1.56</p>
+            <p class="login-version">${LauncherVersion.getName()} v${LauncherVersion.version}</p>
             <p class="login-status">Prêt à jouer</p>
           </div>
         </div>
@@ -841,7 +867,7 @@ renderMainLayout() {
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; max-width: 1200px;">
             <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 12px; padding: 25px; cursor: pointer; transition: all 0.3s;">
               <h3 style="color: #e2e8f0; margin-top: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">${icons.globe} Démarrage rapide</h3>
-              <p style="color: #94a3b8; font-size: 14px;">Apprenez à installer et configurer CraftLauncher en quelques minutes.</p>
+              <p style="color: #94a3b8; font-size: 14px;">Apprenez à installer et configurer ${LauncherVersion.getName()} en quelques minutes.</p>
             </div>
             <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 12px; padding: 25px; cursor: pointer; transition: all 0.3s;">
               <h3 style="color: #e2e8f0; margin-top: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">${icons.download} Guide des versions</h3>
@@ -905,7 +931,7 @@ renderMainLayout() {
               <h3 style="color: #e2e8f0; margin-top: 0;">Informations à inclure</h3>
               <div style="background: rgba(15, 23, 42, 0.8); border-left: 3px solid #6366f1; padding: 15px; border-radius: 6px; color: #cbd5e1; font-family: monospace; font-size: 12px; line-height: 1.6;">
                 OS: Windows 10<br/>
-                Version Launcher: 3.1.56<br/>
+                Version Launcher: ${LauncherVersion.version}<br/>
                 Minecraft Version: 1.20.1<br/>
                 Java Version: 17.0.1<br/>
                 RAM disponible: 8GB<br/>
@@ -932,7 +958,7 @@ renderMainLayout() {
           <div style="max-width: 900px;">
             <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 12px; padding: 30px; margin-bottom: 20px;">
               <h3 style="color: #e2e8f0; margin-top: 0;">Contribuer avec une Pull Request</h3>
-              <p style="color: #cbd5e1; line-height: 1.8;">Vous avez une idée pour améliorer CraftLauncher ? Vous avez développé une nouvelle fonctionnalité ou corrigé un bug ? Nous accueillons les contributions de la communauté !</p>
+              <p style="color: #cbd5e1; line-height: 1.8;">Vous avez une idée pour améliorer ${LauncherVersion.getName()} ? Vous avez développé une nouvelle fonctionnalité ou corrigé un bug ? Nous accueillons les contributions de la communauté !</p>
               <ol style="color: #cbd5e1; line-height: 2;">
                 <li><strong style="color: #6366f1;">Forkez</strong> le dépôt sur GitHub</li>
                 <li><strong style="color: #6366f1;">Créez</strong> une nouvelle branche pour votre feature (<code style="color: #a78bfa; background: rgba(15, 23, 42, 0.8); padding: 2px 6px; border-radius: 4px;">git checkout -b feature/ma-feature</code>)</li>
@@ -963,7 +989,7 @@ renderMainLayout() {
             </div>
 
             <div style="margin-top: 20px; padding: 15px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px;">
-              <p style="color: #cbd5e1; margin: 0; display: flex; align-items: center; gap: 8px;"><strong style="color: #6366f1; display: flex; align-items: center; gap: 6px;">${icons.heart} Merci:</strong> Votre contribution rend CraftLauncher meilleur pour toute la communauté !</p>
+              <p style="color: #cbd5e1; margin: 0; display: flex; align-items: center; gap: 8px;"><strong style="color: #6366f1; display: flex; align-items: center; gap: 6px;">${icons.heart} Merci:</strong> Votre contribution rend ${LauncherVersion.getName()} meilleur pour toute la communauté !</p>
             </div>
           </div>
         </div>
@@ -990,109 +1016,711 @@ renderMainLayout() {
     }
   }
 
+  getGreetingMessage() {
+  const hour = new Date().getHours();
+  const username = this.authData?.username || 'Joueur';
+
+  // Messages selon l'heure
+  if (hour >= 5 && hour < 8) {
+    const messages = [
+      `Déjà debout, ${username} ?`,
+      `Lève-tôt aujourd'hui, ${username} !`,
+      `Bon réveil, ${username} !`,
+      `Prêt pour une matinée gaming, ${username} ?`
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  else if (hour >= 8 && hour < 12) {
+    const messages = [
+      `Bonne matinée, ${username} !`,
+      `Salut ${username}, bien dormi ?`,
+      `Hello ${username} ! Prêt à jouer ?`,
+      `Bonjour ${username} ! Belle journée pour jouer !`
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  else if (hour >= 12 && hour < 14) {
+    const messages = [
+      `Bon appétit, ${username} !`,
+      `Pause déjeuner, ${username} ?`,
+      `Midi pile, ${username} ! Tu as faim ?`,
+      `C'est l'heure de manger, ${username} !`
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  else if (hour >= 14 && hour < 18) {
+    const messages = [
+      `Bon après-midi, ${username} !`,
+      `Salut ${username}, comment va ta journée ?`,
+      `L'après-midi parfait pour jouer, ${username} !`,
+      `Re-bonjour ${username} ! Prêt à construire ?`
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  else if (hour >= 18 && hour < 22) {
+    const messages = [
+      `Bonne soirée, ${username} !`,
+      `Salut ${username}, bien rentré ?`,
+      `La soirée commence, ${username} !`,
+      `Bonsoir ${username} ! Session nocturne ?`
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  else if (hour >= 22 || hour < 2) {
+    const messages = [
+      `Il se fait tard, ${username}...`,
+      `Encore debout, ${username} ?`,
+      `Session nocturne, ${username} ?`,
+      `La nuit est à toi, ${username} !`
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  else {
+    const messages = [
+      `Insomnie, ${username} ?`,
+      `Tu devrais dormir, ${username}...`,
+      `Nuit blanche, ${username} ?`,
+      `Repose-toi un peu, ${username} !`
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  }
+
   renderHomeView() {
+    const headUrl = this.playerHead?.success 
+      ? this.playerHead.url 
+      : 'https://via.placeholder.com/128/1e293b/64748b?text=👤';
+    
+    const greetingMessage = this.getGreetingMessage();
+    
+    // Icône Microsoft SVG
+    const microsoftIcon = `<svg width="20" height="20" viewBox="0 0 23 23" fill="none">
+      <path d="M0 0h11v11H0V0z" fill="#f25022"/>
+      <path d="M12 0h11v11H12V0z" fill="#00a4ef"/>
+      <path d="M0 12h11v11H0V12z" fill="#7fba00"/>
+      <path d="M12 12h11v11H12V12z" fill="#ffb900"/>
+    </svg>`;
+    
     return `
-      <div class="view-container" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%); border-radius: 16px; padding: 40px; position: relative; overflow: hidden;">
-        <div style="position: absolute; top: -50%; right: -10%; width: 400px; height: 400px; background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%); border-radius: 50%; animation: float 6s ease-in-out infinite;"></div>
-        <div style="position: absolute; bottom: -20%; left: 10%; width: 300px; height: 300px; background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 70%); border-radius: 50%; animation: float 8s ease-in-out infinite reverse;"></div>
-        
-        <div style="position: relative; z-index: 1;">
-          <div class="view-header">
-            <h1 class="view-title">Connecté en tant que ${this.authData?.username || 'Joueur'}</h1>
+      <div class="home-view-modern">
+        <!-- Hero Section avec Avatar -->
+        <div class="hero-section">
+          <div class="hero-background"></div>
+          <div class="hero-content">
+            <div class="player-avatar-large">
+              <img 
+                src="${headUrl}" 
+                alt="Player Head"
+                onerror="this.src='https://via.placeholder.com/120/334155/94a3b8?text=👤'"
+              >
+              <div class="avatar-glow"></div>
+            </div>
+            <div class="hero-text">
+              <h1 class="hero-title">${greetingMessage}</h1>
+              <p class="hero-subtitle">
+                ${this.authData?.type === 'microsoft' 
+                  ? `<span style="display: inline-flex; align-items: center; gap: 6px;">${microsoftIcon} Compte Microsoft</span>` 
+                  : '🎮 Mode Hors ligne'}
+              </p>
+            </div>
           </div>
-          
-          <div class="launch-card-modern">
-            <div class="launch-header">
-              <div style="width: 100%; margin-bottom: 20px;">
-                <p style="color: #cbd5e1; font-size: 14px; margin: 0 0 8px 0;">Version: ${this.selectedProfile?.version || '1.21.4'} • RAM: ${this.settings.ramAllocation || 4} GB</p>
-              </div>
-              <div style="display: flex; gap: 12px; align-items: flex-end;">
-                <div>
-                  <label class="input-label">Changer la version</label>
-                  <select id="version-select" class="input-field" style="width: 200px;">
-                    <option value="1.21.11" ${this.selectedProfile?.version === '1.21.11' ? 'selected' : ''}>1.21.11</option>
-                    <option value="1.21.10" ${this.selectedProfile?.version === '1.21.10' ? 'selected' : ''}>1.21.10</option>
-                    <option value="1.21.9" ${this.selectedProfile?.version === '1.21.9' ? 'selected' : ''}>1.21.9</option>
-                    <option value="1.21.8" ${this.selectedProfile?.version === '1.21.8' ? 'selected' : ''}>1.21.8</option>
-                    <option value="1.21.7" ${this.selectedProfile?.version === '1.21.7' ? 'selected' : ''}>1.21.7</option>
-                    <option value="1.21.6" ${this.selectedProfile?.version === '1.21.6' ? 'selected' : ''}>1.21.6</option>
-                    <option value="1.21.5" ${this.selectedProfile?.version === '1.21.5' ? 'selected' : ''}>1.21.5</option>
-                    <option value="1.21.4" ${this.selectedProfile?.version === '1.21.4' ? 'selected' : ''}>1.21.4</option>
-                    <option value="1.21.3" ${this.selectedProfile?.version === '1.21.3' ? 'selected' : ''}>1.21.3</option>
-                    <option value="1.21.2" ${this.selectedProfile?.version === '1.21.2' ? 'selected' : ''}>1.21.2</option>
-                    <option value="1.21.1" ${this.selectedProfile?.version === '1.21.1' ? 'selected' : ''}>1.21.1</option>
-                    <option value="1.21" ${this.selectedProfile?.version === '1.21' ? 'selected' : ''}>1.21</option>
-                    <option value="1.20.6" ${this.selectedProfile?.version === '1.20.6' ? 'selected' : ''}>1.20.6</option>
-                    <option value="1.20.4" ${this.selectedProfile?.version === '1.20.4' ? 'selected' : ''}>1.20.4</option>
-                    <option value="1.20.2" ${this.selectedProfile?.version === '1.20.2' ? 'selected' : ''}>1.20.2</option>
-                    <option value="1.20.1" ${this.selectedProfile?.version === '1.20.1' ? 'selected' : ''}>1.20.1</option>
-                    <option value="1.20" ${this.selectedProfile?.version === '1.20' ? 'selected' : ''}>1.20</option>
-                    <option value="1.19.4" ${this.selectedProfile?.version === '1.19.4' ? 'selected' : ''}>1.19.4</option>
-                    <option value="1.19.2" ${this.selectedProfile?.version === '1.19.2' ? 'selected' : ''}>1.19.2</option>
-                    <option value="1.19" ${this.selectedProfile?.version === '1.19' ? 'selected' : ''}>1.19</option>
-                    <option value="1.18.2" ${this.selectedProfile?.version === '1.18.2' ? 'selected' : ''}>1.18.2</option>
-                    <option value="1.16.5" ${this.selectedProfile?.version === '1.16.5' ? 'selected' : ''}>1.16.5</option>
-                    <option value="1.12.2" ${this.selectedProfile?.version === '1.12.2' ? 'selected' : ''}>1.12.2</option>
-                    <option value="1.8.9" ${this.selectedProfile?.version === '1.8.9' ? 'selected' : ''}>1.8.9</option>
-                  </select>
+        </div>
+
+        <!-- Carte de Lancement Principale -->
+        <div class="main-launch-card">
+          <div class="launch-card-header">
+            <div class="version-info">
+              <span class="version-badge" id="version-badge-display">Minecraft ${this.selectedProfile?.version || '1.21.4'}</span>
+              <span class="ram-badge" id="ram-badge-display">${this.settings.ramAllocation || 4} GB RAM</span>
+            </div>
+            
+            <select id="version-select" class="version-selector">
+              <option value="1.21.11" ${this.selectedProfile?.version === '1.21.11' ? 'selected' : ''}>1.21.11</option>
+              <option value="1.21.10" ${this.selectedProfile?.version === '1.21.10' ? 'selected' : ''}>1.21.10</option>
+              <option value="1.21.9" ${this.selectedProfile?.version === '1.21.9' ? 'selected' : ''}>1.21.9</option>
+              <option value="1.21.8" ${this.selectedProfile?.version === '1.21.8' ? 'selected' : ''}>1.21.8</option>
+              <option value="1.21.7" ${this.selectedProfile?.version === '1.21.7' ? 'selected' : ''}>1.21.7</option>
+              <option value="1.21.6" ${this.selectedProfile?.version === '1.21.6' ? 'selected' : ''}>1.21.6</option>
+              <option value="1.21.5" ${this.selectedProfile?.version === '1.21.5' ? 'selected' : ''}>1.21.5</option>
+              <option value="1.21.4" ${this.selectedProfile?.version === '1.21.4' ? 'selected' : ''}>1.21.4</option>
+              <option value="1.21.3" ${this.selectedProfile?.version === '1.21.3' ? 'selected' : ''}>1.21.3</option>
+              <option value="1.21.2" ${this.selectedProfile?.version === '1.21.2' ? 'selected' : ''}>1.21.2</option>
+              <option value="1.21.1" ${this.selectedProfile?.version === '1.21.1' ? 'selected' : ''}>1.21.1</option>
+              <option value="1.21" ${this.selectedProfile?.version === '1.21' ? 'selected' : ''}>1.21</option>
+              <option value="1.20.6" ${this.selectedProfile?.version === '1.20.6' ? 'selected' : ''}>1.20.6</option>
+              <option value="1.20.4" ${this.selectedProfile?.version === '1.20.4' ? 'selected' : ''}>1.20.4</option>
+              <option value="1.20.2" ${this.selectedProfile?.version === '1.20.2' ? 'selected' : ''}>1.20.2</option>
+              <option value="1.20.1" ${this.selectedProfile?.version === '1.20.1' ? 'selected' : ''}>1.20.1</option>
+              <option value="1.20" ${this.selectedProfile?.version === '1.20' ? 'selected' : ''}>1.20</option>
+              <option value="1.19.4" ${this.selectedProfile?.version === '1.19.4' ? 'selected' : ''}>1.19.4</option>
+              <option value="1.19.2" ${this.selectedProfile?.version === '1.19.2' ? 'selected' : ''}>1.19.2</option>
+              <option value="1.19" ${this.selectedProfile?.version === '1.19' ? 'selected' : ''}>1.19</option>
+              <option value="1.18.2" ${this.selectedProfile?.version === '1.18.2' ? 'selected' : ''}>1.18.2</option>
+              <option value="1.16.5" ${this.selectedProfile?.version === '1.16.5' ? 'selected' : ''}>1.16.5</option>
+              <option value="1.12.2" ${this.selectedProfile?.version === '1.12.2' ? 'selected' : ''}>1.12.2</option>
+              <option value="1.8.9" ${this.selectedProfile?.version === '1.8.9' ? 'selected' : ''}>1.8.9</option>
+            </select>
+          </div>
+
+          <div id="launch-progress-container" class="launch-progress" style="display: none;">
+            <div class="progress-text" id="launch-progress-text">Préparation...</div>
+            <div class="progress-bar-container">
+              <div id="launch-progress-bar" class="progress-bar"></div>
+            </div>
+          </div>
+
+          <button class="launch-button-mega" id="launch-btn">
+            <span class="launch-icon">${icons.zap}</span>
+            <span class="launch-text">Lancer Minecraft</span>
+            <span class="launch-hint">Appuyez sur Ctrl+L</span>
+          </button>
+        </div>
+
+        <!-- Grille d'Informations -->
+        <div class="info-grid">
+          <!-- Statistiques de Session -->
+          <div class="info-card stats-card">
+            <div class="card-header">
+              <span class="card-icon">${icons.barChart}</span>
+              <h3>Session</h3>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Dernière connexion</span>
+              <span class="stat-value">${this.selectedProfile?.lastPlayed || 'Jamais'}</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Temps de jeu total</span>
+              <span class="stat-value">N/A</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Parties jouées</span>
+              <span class="stat-value">N/A</span>
+            </div>
+          </div>
+
+          <!-- Accès Rapide -->
+          <div class="info-card quick-actions-card">
+            <div class="card-header">
+              <span class="card-icon">${icons.zap}</span>
+              <h3>Accès rapide</h3>
+            </div>
+            <div class="quick-actions">
+              <button class="quick-action-btn" id="home-settings-btn">
+                <span>${icons.settings}</span>
+                <span>Paramètres</span>
+              </button>
+              <button class="quick-action-btn" id="home-mods-btn">
+                <span>${icons.mods}</span>
+                <span>Mods</span>
+              </button>
+              <button class="quick-action-btn" id="home-storage-btn">
+                <span>${icons.folder}</span>
+                <span>Dossier</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Serveurs Suggérés -->
+          <div class="info-card servers-card disabled">
+            <div class="card-header">
+              <span class="card-icon">${icons.globe}</span>
+              <h3>Serveurs populaires</h3>
+            </div>
+            <div class="server-list">
+              <div class="server-item" data-server="mc.hypixel.net">
+                <div class="server-dot online"></div>
+                <div class="server-info">
+                  <div class="server-name">Hypixel</div>
+                  <div class="server-players">98,234 joueurs</div>
                 </div>
+                <button class="server-join-btn" data-join-quick="mc.hypixel.net" disabled>Rejoindre</button>
               </div>
-            </div>
-
-            <div id="launch-progress-container" style="display: none; margin-bottom: 20px; background: rgba(26, 31, 58, 0.5); padding: 15px; border-radius: 12px;">
-              <div style="margin-bottom: 8px; color: #9ca3af; font-size: 13px;" id="launch-progress-text">
-                Téléchargement en cours...
-              </div>
-              <div style="width: 100%; height: 8px; background: rgba(99, 102, 241, 0.2); border-radius: 10px; overflow: hidden;">
-                <div id="launch-progress-bar" style="height: 100%; width: 0%; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); transition: width 0.3s;"></div>
-              </div>
-            </div>
-
-            <button class="btn-primary" id="launch-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 24px; font-size: 16px; font-weight: 600;">
-              ${icons.zap}
-              Lancer Minecraft
-            </button>
-          </div>
-
-          <div class="stats-container">
-            <div class="stat-card">
-              <div class="stat-icon">
-                ${icons.calendar}
-              </div>
-              <div class="stat-content">
-                <label>Dernière session</label>
-                <span class="stat-value">${this.selectedProfile?.lastPlayed || '2026-01-10'}</span>
-              </div>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-icon">
-                ${icons.messageSquare}
-              </div>
-              <div class="stat-content">
-                <label>Version actuelle</label>
-                <span class="stat-value" id="current-version">${this.selectedProfile?.version || '1.21.4'}</span>
+              <div class="server-item" data-server="play.cubecraft.net">
+                <div class="server-dot online"></div>
+                <div class="server-info">
+                  <div class="server-name">CubeCraft</div>
+                  <div class="server-players">12,581 joueurs</div>
+                </div>
+                <button class="server-join-btn" data-join-quick="play.cubecraft.net" disabled>Rejoindre</button>
               </div>
             </div>
           </div>
 
-          <div style="margin-top: 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
-            <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);">
-              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <div style="font-size: 20px;">${icons.settings}</div>
-                <h3 style="margin: 0; font-size: 16px;">Paramètres</h3>
-              </div>
-              <p style="color: #94a3b8; font-size: 13px; margin: 8px 0;">Configurez votre launcher</p>
-              <button class="btn-primary" id="home-settings-btn" style="width: 100%; margin-top: 12px;">${icons.settings} Ouvrir</button>
+          <!-- Actualités -->
+          <div class="info-card news-card">
+            <div class="card-header">
+              <span class="card-icon">${icons.newspaper}</span>
+              <h3>Dernières actus</h3>
+            </div>
+            <div class="news-item">
+              <div class="news-date">Il y a 2 jours</div>
+              <div class="news-title">${LauncherVersion.getName()} v${LauncherVersion.version} disponible</div>
+              <div class="news-excerpt">Nouvelles fonctionnalités et corrections de bugs</div>
+            </div>
+            <div class="news-item">
+              <div class="news-date">Il y a 5 jours</div>
+              <div class="news-title">Minecraft 1.21.11 sortie officielle</div>
+              <div class="news-excerpt">Découvrez les nouvelles fonctionnalités</div>
             </div>
           </div>
         </div>
       </div>
 
       <style>
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-20px); }
+        .home-view-modern {
+          padding: 0;
+          max-width: 1400px;
+          margin: 0 auto;
+        }
+
+        /* Hero Section */
+        .hero-section {
+          position: relative;
+          background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+          border-radius: 24px;
+          padding: 48px;
+          margin-bottom: 32px;
+          overflow: hidden;
+        }
+
+        .hero-background {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: 
+            radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.2) 0%, transparent 50%),
+            radial-gradient(circle at 80% 50%, rgba(139, 92, 246, 0.2) 0%, transparent 50%);
+          animation: hero-pulse 8s ease-in-out infinite;
+        }
+
+        @keyframes hero-pulse {
+          0%, 100% { opacity: 0.5; }
+          50% { opacity: 1; }
+        }
+
+        .hero-content {
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 32px;
+        }
+
+        .player-avatar-large {
+          position: relative;
+          width: 120px;
+          height: 120px;
+        }
+
+        .player-avatar-large img {
+          width: 100%;
+          height: 100%;
+          border-radius: 20px;
+          object-fit: cover;
+          border: 4px solid rgba(99, 102, 241, 0.3);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .avatar-glow {
+          position: absolute;
+          inset: -8px;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          border-radius: 24px;
+          opacity: 0.3;
+          filter: blur(20px);
+          z-index: -1;
+          animation: glow-pulse 3s ease-in-out infinite;
+        }
+
+        @keyframes glow-pulse {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.6; }
+        }
+
+        .hero-text {
+          flex: 1;
+        }
+
+        .hero-title {
+          font-size: 36px;
+          font-weight: 700;
+          color: #e2e8f0;
+          margin: 0 0 8px 0;
+          line-height: 1.2;
+        }
+
+        .hero-subtitle {
+          font-size: 16px;
+          color: #94a3b8;
+          margin: 0;
+        }
+
+        /* Main Launch Card */
+        .main-launch-card {
+          background: rgba(30, 41, 59, 0.6);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(99, 102, 241, 0.2);
+          border-radius: 20px;
+          padding: 32px;
+          margin-bottom: 32px;
+        }
+
+        .launch-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 24px;
+        }
+
+        .version-info {
+          display: flex;
+          gap: 12px;
+        }
+
+        .version-badge, .ram-badge {
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .version-badge {
+          background: rgba(99, 102, 241, 0.2);
+          color: #6366f1;
+        }
+
+        .ram-badge {
+          background: rgba(16, 185, 129, 0.2);
+          color: #10b981;
+        }
+
+        .version-selector {
+          padding: 10px 16px;
+          background: rgba(15, 23, 42, 0.8);
+          border: 1px solid rgba(99, 102, 241, 0.3);
+          border-radius: 10px;
+          color: #e2e8f0;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+
+        .version-selector:hover {
+          border-color: #6366f1;
+          background: rgba(15, 23, 42, 0.95);
+        }
+
+        .version-selector:focus {
+          outline: none;
+          border-color: #6366f1;
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .launch-progress {
+          background: rgba(15, 23, 42, 0.6);
+          border-radius: 12px;
+          padding: 20px;
+          margin-bottom: 20px;
+        }
+
+        .progress-text {
+          color: #94a3b8;
+          font-size: 14px;
+          margin-bottom: 12px;
+          font-weight: 500;
+        }
+
+        .progress-bar-container {
+          width: 100%;
+          height: 8px;
+          background: rgba(99, 102, 241, 0.2);
+          border-radius: 10px;
+          overflow: hidden;
+        }
+
+        .progress-bar {
+          height: 100%;
+          background: linear-gradient(90deg, #6366f1, #8b5cf6);
+          border-radius: 10px;
+          transition: width 0.3s ease;
+          box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+        }
+
+        .launch-button-mega {
+          width: 100%;
+          padding: 24px;
+          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+          border: none;
+          border-radius: 16px;
+          color: white;
+          font-size: 18px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.3s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          position: relative;
+          overflow: hidden;
+          box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+        }
+
+        .launch-button-mega::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+          transition: left 0.5s;
+        }
+
+        .launch-button-mega:hover::before {
+          left: 100%;
+        }
+
+        .launch-button-mega:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 12px 32px rgba(99, 102, 241, 0.4);
+        }
+
+        .launch-button-mega:active {
+          transform: translateY(0);
+        }
+
+        .launch-icon {
+          font-size: 24px;
+        }
+
+        .launch-text {
+          font-size: 20px;
+        }
+
+        .launch-hint {
+          position: absolute;
+          right: 24px;
+          font-size: 12px;
+          opacity: 0.6;
+          font-weight: 400;
+        }
+
+        /* Info Grid */
+        .info-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          gap: 20px;
+        }
+
+        .info-card {
+          background: rgba(30, 41, 59, 0.6);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(99, 102, 241, 0.2);
+          border-radius: 16px;
+          padding: 24px;
+          transition: all 0.3s;
+        }
+
+        .info-card:hover {
+          transform: translateY(-4px);
+          border-color: rgba(99, 102, 241, 0.4);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        }
+
+        .card-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 20px;
+          padding-bottom: 16px;
+          border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+        }
+
+        .card-icon {
+          font-size: 24px;
+        }
+
+        .card-header h3 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 600;
+          color: #e2e8f0;
+        }
+
+        .stat-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px 0;
+          border-bottom: 1px solid rgba(99, 102, 241, 0.05);
+        }
+
+        .stat-row:last-child {
+          border-bottom: none;
+        }
+
+        .stat-label {
+          font-size: 14px;
+          color: #94a3b8;
+        }
+
+        .stat-value {
+          font-size: 14px;
+          font-weight: 600;
+          color: #e2e8f0;
+        }
+
+        .quick-actions {
+          display: grid;
+          gap: 12px;
+        }
+
+        .quick-action-btn {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 16px;
+          background: rgba(99, 102, 241, 0.1);
+          border: 1px solid rgba(99, 102, 241, 0.2);
+          border-radius: 10px;
+          color: #e2e8f0;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+
+        .quick-action-btn:hover {
+          background: rgba(99, 102, 241, 0.2);
+          border-color: #6366f1;
+          transform: translateX(4px);
+        }
+
+        .server-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .server-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px;
+          background: rgba(99, 102, 241, 0.05);
+          border-radius: 10px;
+          transition: all 0.3s;
+        }
+
+        .server-item:hover {
+          background: rgba(99, 102, 241, 0.1);
+        }
+
+        .servers-card.disabled {
+          opacity: 0.5;
+          filter: grayscale(0.7);
+          pointer-events: none;
+        }
+
+        .server-join-btn[disabled] {
+          background: rgba(75, 85, 99, 0.4) !important;
+          color: #9ca3af !important;
+          cursor: not-allowed;
+        }
+
+        .server-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+
+        .server-dot.online {
+          background: #10b981;
+          box-shadow: 0 0 8px #10b981;
+        }
+
+        .server-info {
+          flex: 1;
+        }
+
+        .server-name {
+          font-size: 14px;
+          font-weight: 600;
+          color: #e2e8f0;
+          margin-bottom: 2px;
+        }
+
+        .server-players {
+          font-size: 12px;
+          color: #64748b;
+        }
+
+        .server-join-btn {
+          padding: 6px 14px;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          border: none;
+          border-radius: 6px;
+          color: white;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+
+        .server-join-btn:hover {
+          transform: scale(1.05);
+          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        .news-item {
+          padding: 12px 0;
+          border-bottom: 1px solid rgba(99, 102, 241, 0.05);
+        }
+
+        .news-item:last-child {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+
+        .news-date {
+          font-size: 11px;
+          color: #64748b;
+          margin-bottom: 4px;
+        }
+
+        .news-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: #e2e8f0;
+          margin-bottom: 4px;
+        }
+
+        .news-excerpt {
+          font-size: 12px;
+          color: #94a3b8;
+        }
+
+        @media (max-width: 768px) {
+          .hero-content {
+            flex-direction: column;
+            text-align: center;
+          }
+
+          .hero-title {
+            font-size: 28px;
+          }
+
+          .info-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .launch-hint {
+            display: none;
+          }
         }
       </style>
     `;
@@ -1481,7 +2109,7 @@ renderMainLayout() {
   renderShopView() {
     return `
       <div class="view-container">
-        <h1 class="view-title">Shop CraftLauncher</h1>
+        <h1 class="view-title">Shop ${LauncherVersion.getName()}</h1>
         <p style="color: #64748b; margin-bottom: 30px; text-align: center;">Découvrez nos produits et améliorations</p>
 
         <!-- ✅ MINECRAFT OFFICIAL -->
@@ -1496,7 +2124,7 @@ renderMainLayout() {
               <p>Le jeu classique avec mods et skins personnalisés</p>
               <div class="shop-price">26,95 €</div>
               <button class="btn-primary" onclick="require('electron').shell.openExternal('https://www.minecraft.net/fr-fr/store/minecraft-java-bedrock-edition-pc')" style="width: 100%;">
-                ${icons.zap} Acheter
+                ⚡ Acheter
               </button>
             </div>
 
@@ -1506,7 +2134,7 @@ renderMainLayout() {
               <p>Version cross-platform pour tous les appareils</p>
               <div class="shop-price">19,99 €</div>
               <button class="btn-primary" onclick="require('electron').shell.openExternal('https://www.minecraft.net/fr-fr/store')" style="width: 100%;">
-                ${icons.zap} Acheter
+                ⚡ Acheter
               </button>
             </div>
 
@@ -1516,7 +2144,7 @@ renderMainLayout() {
               <p>Les deux versions pour le prix d'une</p>
               <div class="shop-price">39,99 €</div>
               <button class="btn-primary" onclick="require('electron').shell.openExternal('https://www.minecraft.net/fr-fr/store/minecraft-java-bedrock-edition-pc')" style="width: 100%;">
-                ${icons.zap} Acheter
+                ⚡ Acheter
               </button>
             </div>
           </div>
@@ -1534,7 +2162,7 @@ renderMainLayout() {
               <p>Serveur privé cloud pour vous et vos amis</p>
               <div class="shop-price">7,99 €/mois</div>
               <button class="btn-primary" onclick="require('electron').shell.openExternal('https://www.minecraft.net/fr-fr/realms-plus')" style="width: 100%;">
-                ${icons.zap} S'abonner
+                🌐 S'abonner
               </button>
             </div>
 
@@ -1544,7 +2172,7 @@ renderMainLayout() {
               <p>Serveur compétitif avec 10k+ joueurs</p>
               <div class="shop-price">Gratuit</div>
               <button class="btn-primary" onclick="require('electron').shell.openExternal('https://hypixel.net')" style="width: 100%;">
-                ${icons.globe} Visiter
+                🌐 Visiter
               </button>
             </div>
 
@@ -1554,7 +2182,7 @@ renderMainLayout() {
               <p>Mode de jeu unique avec progression</p>
               <div class="shop-price">Gratuit</div>
               <button class="btn-primary" onclick="require('electron').shell.openExternal('https://hypixel.net/forums/')" style="width: 100%;">
-                ${icons.globe} Rejoindre
+                🌐 Rejoindre
               </button>
             </div>
           </div>
@@ -1563,7 +2191,7 @@ renderMainLayout() {
         <!-- ✅ LAUNCHER PREMIUM -->
         <div style="margin-bottom: 40px;">
           <h2 style="font-size: 20px; margin-bottom: 20px; color: #e2e8f0; text-align: center;">
-            <span style="color: #f59e0b;">●</span> CraftLauncher Premium
+            <span style="color: #f59e0b;">●</span> ${LauncherVersion.getName()} Premium
           </h2>
           <div class="shop-grid">
             <div class="shop-card" style="border: 2px solid #f59e0b;">
@@ -1578,8 +2206,8 @@ renderMainLayout() {
                 <li>✓ Snapshots exclusifs</li>
               </ul>
               <div class="shop-price">4,99 €/mois</div>
-              <button class="btn-primary" style="width: 100%; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border: none;">
-                ${icons.crown} S'abonner
+              <button class="btn-primary" onclick="alert('Premium mensuel - En développement')" style="width: 100%; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border: none;">
+                👑 S'abonner
               </button>
             </div>
 
@@ -1595,8 +2223,8 @@ renderMainLayout() {
                 <li>✓ Support VIP 24/7</li>
               </ul>
               <div class="shop-price">49,99 €/an</div>
-              <button class="btn-primary" style="width: 100%; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border: none;">
-                ${icons.zap} S'abonner
+              <button class="btn-primary" onclick="alert('Premium annuel - En développement')" style="width: 100%; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border: none;">
+                ⚡ S'abonner
               </button>
             </div>
           </div>
@@ -1613,8 +2241,8 @@ renderMainLayout() {
               <h3>Pack Thème Sombre Pro</h3>
               <p>5 thèmes sombres premium exclusifs</p>
               <div class="shop-price">2,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.star} Acheter
+              <button class="btn-primary" onclick="alert('Pack Thème Sombre Pro - En développement')" style="width: 100%;">
+                ⭐ Acheter
               </button>
             </div>
 
@@ -1623,8 +2251,8 @@ renderMainLayout() {
               <h3>Pack Arc-en-ciel</h3>
               <p>8 thèmes colorés dynamiques</p>
               <div class="shop-price">3,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.star} Acheter
+              <button class="btn-primary" onclick="alert('Pack Arc-en-ciel - En développement')" style="width: 100%;">
+                ⭐ Acheter
               </button>
             </div>
 
@@ -1633,8 +2261,8 @@ renderMainLayout() {
               <h3>Pack Neon Cyberpunk</h3>
               <p>Thèmes futuristes avec animations</p>
               <div class="shop-price">4,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.star} Acheter
+              <button class="btn-primary" onclick="alert('Pack Neon Cyberpunk - En développement')" style="width: 100%;">
+                ⭐ Acheter
               </button>
             </div>
 
@@ -1643,8 +2271,8 @@ renderMainLayout() {
               <h3>Badge Custom Discord</h3>
               <p>Badge exclusif pour ton serveur Discord</p>
               <div class="shop-price">1,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.crown} Obtenir
+              <button class="btn-primary" onclick="alert('Badge Custom Discord - En développement')" style="width: 100%;">
+                👑 Obtenir
               </button>
             </div>
 
@@ -1653,8 +2281,8 @@ renderMainLayout() {
               <h3>Particle Effects</h3>
               <p>Effets de particules pour le launcher</p>
               <div class="shop-price">1,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.star} Acheter
+              <button class="btn-primary" onclick="alert('Particle Effects - En développement')" style="width: 100%;">
+                ⭐ Acheter
               </button>
             </div>
 
@@ -1663,8 +2291,8 @@ renderMainLayout() {
               <h3>Soundpack Premium</h3>
               <p>Sons exclusifs pour les notifications</p>
               <div class="shop-price">2,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.volume} Acheter
+              <button class="btn-primary" onclick="alert('Soundpack Premium - En développement')" style="width: 100%;">
+                🔊 Acheter
               </button>
             </div>
           </div>
@@ -1681,8 +2309,8 @@ renderMainLayout() {
               <h3>Pack Tech & Performance</h3>
               <p>15+ mods pour optimiser le jeu</p>
               <div class="shop-price">Gratuit</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.download} Télécharger
+              <button class="btn-primary" onclick="alert('Pack Tech & Performance - En développement')" style="width: 100%;">
+                📥 Télécharger
               </button>
             </div>
 
@@ -1691,8 +2319,8 @@ renderMainLayout() {
               <h3>Pack Constructions</h3>
               <p>20+ mods de build et décoration</p>
               <div class="shop-price">3,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.download} Acheter & Installer
+              <button class="btn-primary" onclick="alert('Pack Constructions - En développement')" style="width: 100%;">
+                📥 Acheter & Installer
               </button>
             </div>
 
@@ -1701,8 +2329,8 @@ renderMainLayout() {
               <h3>Pack Combat Avancé</h3>
               <p>Mods pour des combats intenses</p>
               <div class="shop-price">2,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.zap} Acheter & Installer
+              <button class="btn-primary" onclick="alert('Pack Combat Avancé - En développement')" style="width: 100%;">
+                ⚡ Acheter & Installer
               </button>
             </div>
 
@@ -1711,8 +2339,8 @@ renderMainLayout() {
               <h3>Pack Nature & Biomes</h3>
               <p>Nouveaux biomes et environnements</p>
               <div class="shop-price">3,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.leaf} Acheter & Installer
+              <button class="btn-primary" onclick="alert('Pack Nature & Biomes - En développement')" style="width: 100%;">
+                🌿 Acheter & Installer
               </button>
             </div>
 
@@ -1721,8 +2349,8 @@ renderMainLayout() {
               <h3>Pack Magie & Surnaturel</h3>
               <p>Mods magiques et fantastiques</p>
               <div class="shop-price">4,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.star} Acheter & Installer
+              <button class="btn-primary" onclick="alert('Pack Magie & Surnaturel - En développement')" style="width: 100%;">
+                ⭐ Acheter & Installer
               </button>
             </div>
 
@@ -1731,8 +2359,8 @@ renderMainLayout() {
               <h3>Pack Space & Tech</h3>
               <p>Technologie avancée et espace</p>
               <div class="shop-price">4,99 €</div>
-              <button class="btn-primary" style="width: 100%;">
-                ${icons.zap} Acheter & Installer
+              <button class="btn-primary" onclick="alert('Pack Space & Tech - En développement')" style="width: 100%;">
+                ⚡ Acheter & Installer
               </button>
             </div>
           </div>
@@ -1741,7 +2369,7 @@ renderMainLayout() {
         <!-- ✅ SUPPORTER LE PROJET -->
         <div style="margin-bottom: 40px;">
           <h2 style="font-size: 20px; margin-bottom: 20px; color: #e2e8f0; text-align: center;">
-            <span style="color: #ef4444;">●</span> Supporter CraftLauncher
+            <span style="color: #ef4444;">●</span> Supporter ${LauncherVersion.getName}
           </h2>
           <div class="shop-grid">
             <div class="shop-card" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);">
@@ -1749,8 +2377,8 @@ renderMainLayout() {
               <h3>Petit Don</h3>
               <p>Soutiens le développement du projet</p>
               <div class="shop-price">2,99 €</div>
-              <button class="btn-primary" style="width: 100%; background: #ef4444; border: none;">
-                ${icons.heart} Donner
+              <button class="btn-primary" onclick="alert('Petit Don - En développement')" style="width: 100%; background: #ef4444; border: none;">
+                ❤️ Donner
               </button>
             </div>
 
@@ -1759,8 +2387,8 @@ renderMainLayout() {
               <h3>Don Important</h3>
               <p>Aide au développement et serveurs</p>
               <div class="shop-price">9,99 €</div>
-              <button class="btn-primary" style="width: 100%; background: #f87171; border: none;">
-                ${icons.heart} Donner
+              <button class="btn-primary" onclick="alert('Don Important - En développement')" style="width: 100%; background: #f87171; border: none;">
+                ❤️ Donner
               </button>
             </div>
 
@@ -1769,8 +2397,8 @@ renderMainLayout() {
               <h3>Supporter VIP</h3>
               <p>Merci spécial + avantages lifetime</p>
               <div class="shop-price">29,99 €</div>
-              <button class="btn-primary" style="width: 100%; background: #dc2626; border: none;">
-                ${icons.crown} Devenir VIP
+              <button class="btn-primary" onclick="alert('Supporter VIP - En développement')" style="width: 100%; background: #dc2626; border: none;">
+                👑 Devenir VIP
               </button>
             </div>
           </div>
@@ -1888,9 +2516,9 @@ renderMainLayout() {
   renderNewsView() {
     const news = [
       {
-        title: '🚀 CraftLauncher v3.1.56 est en ligne !',
+        title: `🚀 ${LauncherVersion.getName()} v${LauncherVersion.version} est en ligne !`,
         date: '17 Janvier 2026',
-        author: 'CraftLauncher Team',
+        author: `${LauncherVersion.getName()} Team`,
         description: 'La nouvelle version majeure est ici avec un design complètement refondu, système de mods intégré, et bien plus encore !',
         image: '🎉',
         category: 'Mise à jour'
@@ -1928,10 +2556,10 @@ renderMainLayout() {
         category: 'Annonce'
       },
       {
-        title: '🏆 Tournoi CraftLauncher #1 - Inscriptions ouvertes !',
+        title: `🏆 Tournoi ${LauncherVersion.getName()} #1 - Inscriptions ouvertes !`,
         date: '28 Décembre 2025',
         author: 'Community Manager',
-        description: 'Participez au premier tournoi officiel de CraftLauncher ! Récompenses à la clé !',
+        description: `Participez au premier tournoi officiel de ${LauncherVersion.getName()} ! Récompenses à la clé !`,
         image: '🏆',
         category: 'Événement'
       }
@@ -1940,7 +2568,7 @@ renderMainLayout() {
     return `
       <div class="view-container">
         <div class="view-header">
-          <h1 class="view-title">📰 Actualités CraftLauncher</h1>
+          <h1 class="view-title">📰 Actualités ${LauncherVersion.getName()}</h1>
         </div>
 
         <div style="max-width: 1000px; margin: 0 auto;">
@@ -2274,7 +2902,6 @@ renderMainLayout() {
       this.selectedProfile = null;
       
       this.render();
-      this.setupLoginEvents();
       
       console.log('✅ Return to login page');
     });
@@ -2299,15 +2926,28 @@ renderMainLayout() {
     });
 
     // ✅ ÉCOUTER LES CHANGEMENTS DE PARAMÈTRES
-    this.addTrackedListener('settings-updated', (event, settings) => {
-      this.settings = settings;
+    this.addTrackedListener('settings-updated', (event, newSettings) => {
+      console.log('⚡ Settings updated in real-time:', newSettings);
+      this.settings = newSettings;
       
-      const ramDisplay = document.getElementById('current-ram');
+      // ✅ Mettre à jour le badge RAM IMMÉDIATEMENT
+      const ramBadge = document.getElementById('ram-badge-display');
+      if (ramBadge) {
+        ramBadge.textContent = `${newSettings.ramAllocation || 4} GB RAM`;
+        console.log('✅ RAM badge updated to:', newSettings.ramAllocation);
+      }
+      
+      // Mettre à jour aussi dans le header si nécessaire
       const headerRam = document.getElementById('header-ram');
-      if (ramDisplay) ramDisplay.textContent = settings.ramAllocation || 4;
-      if (headerRam) headerRam.textContent = settings.ramAllocation || 4;
+      if (headerRam) {
+        headerRam.textContent = newSettings.ramAllocation || 4;
+      }
       
-      console.log('✅ Settings updated:', settings);
+      // Si on est sur l'accueil, on pourrait aussi re-render pour être sûr
+      if (this.currentView === 'main') {
+        // Optionnel: forcer la mise à jour visuelle
+        this.renderContentAsync();
+      }
     });
 
     // ✅ BOUTON LAUNCH
@@ -2377,6 +3017,20 @@ renderMainLayout() {
       });
     }
 
+    // Bouton Mods depuis accueil
+    document.getElementById('home-mods-btn')?.addEventListener('click', () => {
+      this.currentView = 'mods';
+      this.render();
+    });
+
+    // Boutons rejoindre serveur rapide
+    document.querySelectorAll('[data-join-quick]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const serverIP = btn.dataset.joinQuick;
+        this.launchGame(serverIP);
+      });
+    });
+
     // ✅ MENU NAVIGATION
     document.querySelectorAll('.menu-item').forEach(btn => {
       // ✅ CLEANUP: Supprimer les anciens listeners avant d'en ajouter de nouveaux
@@ -2402,7 +3056,6 @@ renderMainLayout() {
     // ✅ CHANGEMENT DE VERSION
     document.getElementById('version-select')?.addEventListener('change', async (e) => {
       const version = e.target.value;
-      const versionSelect = document.getElementById('version-select');
       
       try {
         const result = await ipcRenderer.invoke('update-profile-version', version);
@@ -2410,21 +3063,17 @@ renderMainLayout() {
         if (result.success) {
           this.selectedProfile = result.profile;
           
-          const currentVersionEl = document.getElementById('current-version');
-          if (currentVersionEl) {
-            currentVersionEl.textContent = version;
-          }
-          
-          const launchHeader = document.querySelector('.launch-header p');
-          if (launchHeader) {
-            launchHeader.textContent = `Version: ${version} • RAM: ${this.settings.ramAllocation || 4} GB`;
+          // ✅ Mettre à jour le badge de version
+          const versionBadge = document.getElementById('version-badge-display');
+          if (versionBadge) {
+            versionBadge.textContent = `Minecraft ${version}`;
           }
           
           console.log('✅ Version changed:', version);
         }
       } catch (error) {
         console.error('Erreur changement version:', error);
-        versionSelect.value = this.selectedProfile?.version || '1.21.4';
+        e.target.value = this.selectedProfile?.version || '1.21.4';
       }
     });
 

@@ -1,5 +1,6 @@
 // Gestionnaire d'icônes Lucide pour le launcher
 const lucide = require('lucide');
+const LauncherVersion = require('../main/launcher-version.js');
 
 class LucideIcons {
   constructor() {

@@ -27,43 +27,90 @@
     }
 
     .titlebar {
-      height: 32px;
-      background: #050814;
+      height: 40px;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(20, 30, 50, 0.9) 100%);
+      border-bottom: 1px solid rgba(99, 102, 241, 0.15);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 10px;
+      padding: 0 16px;
       -webkit-app-region: drag;
-      border-bottom: 1px solid #1a1f3a;
+      z-index: 1000;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     .titlebar-title {
-      font-size: 12px;
-      color: #6b7280;
+      font-weight: 700;
+      font-size: 15px;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      letter-spacing: 0.5px;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .titlebar-title::before {
+      content: '⛏️';
+      font-size: 18px;
     }
 
     .titlebar-buttons {
       display: flex;
+      gap: 10px;
       -webkit-app-region: no-drag;
+      align-items: center;
     }
 
     .titlebar-button {
-      width: 45px;
-      height: 32px;
-      border: none;
-      background: transparent;
-      color: #9ca3af;
+      width: 36px;
+      height: 36px;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.15);
+      color: #cbd5e1;
       cursor: pointer;
-      transition: all 0.2s;
-      font-size: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 6px;
+      user-select: none;
     }
 
     .titlebar-button:hover {
-      background: #1a1f3a;
+      background: rgba(99, 102, 241, 0.2);
+      border-color: rgba(99, 102, 241, 0.3);
+      color: #f1f5f9;
+      transform: translateY(-1px);
+    }
+
+    .titlebar-button:active {
+      transform: translateY(0);
+      background: rgba(99, 102, 241, 0.15);
+    }
+
+    .titlebar-button.minimize:hover {
+      background: rgba(34, 197, 94, 0.12);
+      border-color: rgba(34, 197, 94, 0.25);
+      color: #4ade80;
+    }
+
+    .titlebar-button.maximize:hover {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.25);
+      color: #60a5fa;
     }
 
     .titlebar-button.close:hover {
-      background: #dc2626;
+      background: rgba(239, 68, 68, 0.2);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #ff6b6b;
+    }
+
+    .titlebar-button.close:active {
+      background: rgba(239, 68, 68, 0.25);
     }
 
     .settings-layout {
@@ -711,7 +758,79 @@
 </head>
 <body>
   <div id="app"></div>
-
+  <canvas id="settings-bg-canvas" style="position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;opacity:0.4;"></canvas>
   <script src="settings-app.js"></script>
+  <script>
+    (function(){
+      var c = document.getElementById('settings-bg-canvas');
+      if (!c) return;
+      var ctx = c.getContext('2d');
+      var w = 0, h = 0, pr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+      var nodes = [], rafId = 0, t = 0, mx = -1e9, my = -1e9;
+      function resize(){
+        w = c.width = Math.floor(window.innerWidth * pr);
+        h = c.height = Math.floor(window.innerHeight * pr);
+        c.style.width = '100%';
+        c.style.height = '100%';
+        nodes = [];
+        var cols = Math.ceil(window.innerWidth/80);
+        var rows = Math.ceil(window.innerHeight/80);
+        var count = Math.min(220, cols*rows);
+        for (var i=0;i<count;i++){
+          nodes.push({
+            x: Math.random()*w,
+            y: Math.random()*h,
+            vx: (Math.random()-0.5)*0.15*pr,
+            vy: (Math.random()-0.5)*0.15*pr,
+            s: Math.random()*1.2 + 0.4
+          });
+        }
+      }
+      function step(){
+        t += 0.016;
+        ctx.clearRect(0,0,w,h);
+        var r = 120*pr;
+        for (var i=0;i<nodes.length;i++){
+          var n = nodes[i];
+          n.x += n.vx;
+          n.y += n.vy;
+          if (n.x<0) n.x += w; else if (n.x>w) n.x -= w;
+          if (n.y<0) n.y += h; else if (n.y>h) n.y -= h;
+          var dx = n.x - mx*pr, dy = n.y - my*pr;
+          var d = Math.sqrt(dx*dx + dy*dy);
+          var a = d<r ? 0.35*(1 - d/r) + 0.15 : 0.08;
+          ctx.fillStyle = 'rgba(99,102,241,'+a.toFixed(3)+')';
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, n.s*pr, 0, Math.PI*2);
+          ctx.fill();
+        }
+        for (var i=0;i<nodes.length;i++){
+          var n1 = nodes[i];
+          for (var j=i+1;j<nodes.length;j++){
+            var n2 = nodes[j];
+            var dx = n1.x - n2.x, dy = n1.y - n2.y;
+            var d2 = dx*dx + dy*dy;
+            if (d2 < (140*pr)*(140*pr)) {
+              var d = Math.sqrt(d2);
+              var op = Math.max(0, 1 - d/(140*pr));
+              var hue = 220 + Math.sin(t + i*0.02 + j*0.02)*20;
+              ctx.strokeStyle = 'rgba(56,189,248,'+(0.06+0.22*op).toFixed(3)+')';
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(n1.x, n1.y);
+              ctx.lineTo(n2.x, n2.y);
+              ctx.stroke();
+            }
+          }
+        }
+        rafId = requestAnimationFrame(step);
+      }
+      window.addEventListener('resize', resize);
+      window.addEventListener('mousemove', function(e){ mx = e.clientX; my = e.clientY; });
+      resize();
+      rafId = requestAnimationFrame(step);
+      window.addEventListener('beforeunload', function(){ if (rafId) cancelAnimationFrame(rafId); });
+    })();
+  </script>
 </body>
 </html>

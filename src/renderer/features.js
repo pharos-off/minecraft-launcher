@@ -5,6 +5,7 @@
  */
 
 const { ipcRenderer } = require('electron');
+const LauncherVersion = require('../main/launcher-version.js');
 
 class LauncherFeatures {
   constructor(app) {

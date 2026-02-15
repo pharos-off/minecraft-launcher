@@ -1,4 +1,5 @@
 const { Client, Authenticator } = require('minecraft-launcher-core');
+const LauncherVersion = require('./launcher-version.js');
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');

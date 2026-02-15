@@ -1,74 +1,125 @@
 // discord-handlers.js
 const { ipcMain } = require('electron');
+const LauncherVersion = require('./launcher-version.js');
 
 let currentSettingsWindow = null;
 let currentDiscordRPC = null;
 
-// ✅ Fonction pour mettre à jour la référence à la fenêtre settings
+/**
+ * Mettre à jour la référence à la fenêtre settings
+ */
 function setSettingsWindow(window) {
   currentSettingsWindow = window;
   console.log('🧦 Settings window registered for Discord RPC');
-  
-  // Envoyer le statut initial si Discord est connecté
-  if (window && currentSettingsWindow && !currentSettingsWindow.isDestroyed()) {
-    setTimeout(() => {
-      broadcastDiscordStatus();
-    }, 500);
-  }
+
 }
 
-// ✅ Fonction pour envoyer le statut à la fenêtre settings
-function broadcastDiscordStatus(discordRPC) {
+// ✅ Garder le dernier statut envoyé pour éviter les broadcasts inutiles
+let lastBroadcastedStatus = null;
+
+/**
+ * Envoyer le statut Discord à la fenêtre settings
+ */
+function broadcastDiscordStatus(discordRPC, force = false) {
   const rpc = discordRPC || currentDiscordRPC;
-  if (currentSettingsWindow && !currentSettingsWindow.isDestroyed() && rpc) {
+  
+  if (!rpc) {
+    console.log('⚠️ No Discord RPC instance to broadcast');
+    return;
+  }
+
+  if (!currentSettingsWindow || currentSettingsWindow.isDestroyed()) {
+    // Reset le cache si la fenêtre est fermée
+    lastBroadcastedStatus = null;
+    return;
+  }
+
+  try {
     const status = rpc.getStatus();
-    console.log('📡 Sending Discord status to settings:', status.connected);
+    
+    // ✅ Vérifier si le statut a changé (sauf si force = true)
+    const statusKey = `${status.connected}-${status.connecting}-${status.enabled}-${status.user?.username || 'none'}`;
+    
+    if (!force && lastBroadcastedStatus === statusKey) {
+      // Statut identique, pas de broadcast
+      return;
+    }
+    
+    console.log('📡 Broadcasting Discord status:', {
+      connected: status.connected,
+      connecting: status.connecting,
+      enabled: status.enabled,
+      user: status.user?.username
+    });
+
     currentSettingsWindow.webContents.send('discord-status-changed', {
       connected: status.connected,
       connecting: status.connecting,
       enabled: status.enabled,
       user: status.user
     });
+    
+    // Mettre à jour le cache
+    lastBroadcastedStatus = statusKey;
+  } catch (error) {
+    console.error('❌ Error broadcasting Discord status:', error.message);
   }
 }
 
+/**
+ * Configuration des handlers Discord IPC
+ */
 function setupDiscordHandlers(discordRPC, store, settingsWindow) {
-  // Stocker discordRPC au niveau du module pour l'utiliser dans les handlers
+  // Stocker discordRPC au niveau du module
   currentDiscordRPC = discordRPC;
   
-  // ✅ Enregistrer la fenêtre settings
+  // Enregistrer la fenêtre settings
   if (settingsWindow) {
     setSettingsWindow(settingsWindow);
   }
   
-  // ✅ Ajouter des listeners pour mettre à jour l'UI quand Discord change
+  // Configurer les listeners Discord pour mettre à jour l'UI
   if (discordRPC) {
+    // Éviter les doubles listeners
+    discordRPC.removeAllListeners('connected');
+    discordRPC.removeAllListeners('disconnected');
+    discordRPC.removeAllListeners('error');
+    discordRPC.removeAllListeners('connectionError');
+
     discordRPC.on('connected', (user) => {
-      console.log('✅ Discord connected - Reporting to settings');
-      broadcastDiscordStatus();
+      console.log('✅ Discord connected event - User:', user?.username);
+      broadcastDiscordStatus(discordRPC, true);
     });
 
     discordRPC.on('disconnected', () => {
-      console.log('❌ Discord disconnected - Reporting to settings');
-      broadcastDiscordStatus();
+      console.log('❌ Discord disconnected event');
+      broadcastDiscordStatus(discordRPC, true);
     });
 
     discordRPC.on('error', (error) => {
-      console.error('⚠️ Erreur Discord - Signalement aux settings');
-      broadcastDiscordStatus();
+      console.error('⚠️ Discord error event:', error?.message);
+      broadcastDiscordStatus(discordRPC);
+    });
+
+    discordRPC.on('connectionError', (error) => {
+      console.error('⚠️ Discord connection error event:', error?.message);
+      broadcastDiscordStatus(discordRPC);
     });
   }
   
-  // ✅ Handler pour quand settings s'ouvre
+  // Handler: Settings window ready
   ipcMain.handle('settings-window-ready', async (event) => {
-    console.log('📨 Settings window ready');
-    broadcastDiscordStatus();
+    console.log('📨 Settings window ready signal received');
     return { success: true };
   });
   
+  // Handler: Get Discord status
   ipcMain.handle('get-discord-status', async (event) => {
     try {
-      if (!discordRPC) {
+      const rpc = currentDiscordRPC || discordRPC;
+      
+      if (!rpc) {
+        console.log('⚠️ No Discord RPC instance available');
         return {
           connected: false,
           connecting: false,
@@ -78,11 +129,11 @@ function setupDiscordHandlers(discordRPC, store, settingsWindow) {
         };
       }
 
-      const status = discordRPC.getStatus();
-      console.log('📊 Discord status returned:', status);
+      const status = rpc.getStatus();
+      console.log('📊 Discord status requested:', status);
       return status;
     } catch (error) {
-      console.error('Erreur get-discord-status:', error);
+      console.error('❌ Error getting Discord status:', error);
       return {
         connected: false,
         connecting: false,
@@ -94,9 +145,12 @@ function setupDiscordHandlers(discordRPC, store, settingsWindow) {
     }
   });
 
+  // Handler: Test Discord RPC
   ipcMain.handle('test-discord-rpc', async (event) => {
     try {
-      if (!discordRPC) {
+      const rpc = currentDiscordRPC || discordRPC;
+      
+      if (!rpc) {
         return {
           success: false,
           message: 'Discord RPC non initialisé',
@@ -104,11 +158,16 @@ function setupDiscordHandlers(discordRPC, store, settingsWindow) {
         };
       }
 
-      const result = await discordRPC.test();
-      console.log('🧪 Discord test result:', result);
+      console.log('🧪 Testing Discord RPC...');
+      const result = await rpc.test();
+      console.log('🧪 Test result:', result);
+      
+      // Broadcast le nouveau statut
+      broadcastDiscordStatus(rpc);
+      
       return result;
     } catch (error) {
-      console.error('Erreur test-discord-rpc:', error);
+      console.error('❌ Error testing Discord RPC:', error);
       return {
         success: false,
         message: error.message,
@@ -117,34 +176,64 @@ function setupDiscordHandlers(discordRPC, store, settingsWindow) {
     }
   });
 
+  // Handler: Reconnect Discord RPC
   ipcMain.handle('reconnect-discord-rpc', async (event) => {
     try {
-      if (!discordRPC) {
-        return { success: false, message: 'Discord RPC non initialisé' };
+      const rpc = currentDiscordRPC || discordRPC;
+      
+      if (!rpc) {
+        return { 
+          success: false, 
+          message: 'Discord RPC non initialisé' 
+        };
       }
 
-      console.log('🔄 Reconnexion Discord en cours...');
-      await discordRPC.disconnect();
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await discordRPC.initialize();
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('🔄 Manual reconnection requested...');
+      
+      // Broadcast "connecting"
+      if (currentSettingsWindow && !currentSettingsWindow.isDestroyed()) {
+        currentSettingsWindow.webContents.send('discord-status-changed', {
+          connected: false,
+          connecting: true,
+          enabled: true,
+          user: null
+        });
+      }
 
-      const status = discordRPC.getStatus();
+      // Déconnecter proprement
+      await rpc.disconnect();
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Reconnecter avec retries
+      const success = await rpc.initializeWithRetry(3, 1000);
+      
+      // Attendre un peu pour que le statut se stabilise
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const status = rpc.getStatus();
+      
+      // Force le broadcast car c'est un vrai changement
+      broadcastDiscordStatus(rpc, true);
       
       return {
         success: status.connected,
-        message: status.connected ? 'Reconnecté avec succès' : 'Échec de la reconnexion',
+        message: status.connected ? 'Reconnecté avec succès !' : 'Échec de la reconnexion',
         status: status
       };
     } catch (error) {
-      console.error('Erreur reconnect-discord-rpc:', error);
+      console.error('❌ Error reconnecting Discord RPC:', error);
+      
+      // Broadcast l'erreur
+      broadcastDiscordStatus();
+      
       return {
         success: false,
-        message: error.message
+        message: `Erreur: ${error.message}`
       };
     }
   });
 
+  // Handler: Get Discord settings
   ipcMain.handle('get-discord-settings', async (event) => {
     try {
       const rpc = currentDiscordRPC || discordRPC;
@@ -154,83 +243,168 @@ function setupDiscordHandlers(discordRPC, store, settingsWindow) {
         enabled: false
       };
 
-      return {
+      const settings = {
         rpcEnabled: store.get('discord.rpcEnabled', true),
         showStatus: store.get('discord.showStatus', true),
         showDetails: store.get('discord.showDetails', true),
         showImage: store.get('discord.showImage', true),
-        isConnected: status.connected
+        isConnected: status.connected,
+        isConnecting: status.connecting
       };
+
+      console.log('📋 Discord settings retrieved:', settings);
+      return settings;
     } catch (error) {
-      console.error('Erreur get-discord-settings:', error);
+      console.error('❌ Error getting Discord settings:', error);
       return {
         rpcEnabled: true,
         showStatus: true,
         showDetails: true,
         showImage: true,
-        isConnected: false
+        isConnected: false,
+        isConnecting: false
       };
     }
   });
 
+  // Handler: Save Discord settings
   ipcMain.handle('save-discord-settings', async (event, settings) => {
     try {
+      console.log('💾 Saving Discord settings:', settings);
+
+      // Sauvegarder dans le store
       store.set('discord.rpcEnabled', settings.rpcEnabled);
       store.set('discord.showStatus', settings.showStatus);
       store.set('discord.showDetails', settings.showDetails);
       store.set('discord.showImage', settings.showImage);
 
-      // Mettre à jour les paramètres RPC en direct
-      if (currentDiscordRPC) {
-        currentDiscordRPC.updateRPCSettings({
-          showStatus: settings.showStatus,
-          showDetails: settings.showDetails,
-          showImage: settings.showImage
-        });
+      const rpc = currentDiscordRPC || discordRPC;
+      
+      if (!rpc) {
+        console.log('⚠️ No Discord RPC to update');
+        return { success: true };
       }
 
-      if (!settings.rpcEnabled && currentDiscordRPC) {
-        await currentDiscordRPC.disconnect();
-      } else if (settings.rpcEnabled && (!currentDiscordRPC || !currentDiscordRPC.isConnected)) {
-        await currentDiscordRPC.initializeWithRetry(2, 500);
+      // Mettre à jour les paramètres RPC en direct
+      rpc.updateRPCSettings({
+        showStatus: settings.showStatus,
+        showDetails: settings.showDetails,
+        showImage: settings.showImage
+      });
+
+      // Gérer l'activation/désactivation
+      if (!settings.rpcEnabled && rpc.isConnected) {
+        console.log('🔌 Disabling Discord RPC...');
+        await rpc.disconnect();
+      } else if (settings.rpcEnabled && !rpc.isConnected && !rpc.isConnecting) {
+        console.log('🔗 Enabling Discord RPC...');
+        await rpc.initializeWithRetry(2, 500);
       }
+
+      // Force le broadcast car c'est un vrai changement
+      setTimeout(() => {
+        broadcastDiscordStatus(rpc, true);
+      }, 500);
 
       return { success: true };
     } catch (error) {
-      console.error('Erreur save-discord-settings:', error);
-      return { success: false, error: error.message };
+      console.error('❌ Error saving Discord settings:', error);
+      return { 
+        success: false, 
+        error: error.message 
+      };
     }
   });
 
+  // Handler: Reset Discord settings
   ipcMain.handle('reset-discord-settings', async (event) => {
     try {
+      console.log('🔄 Resetting Discord settings to defaults...');
+
+      // Réinitialiser les paramètres
       store.set('discord.rpcEnabled', true);
       store.set('discord.showStatus', true);
       store.set('discord.showDetails', true);
       store.set('discord.showImage', true);
 
-      // Mettre à jour les paramètres RPC
-      if (currentDiscordRPC) {
-        currentDiscordRPC.updateRPCSettings({
+      const rpc = currentDiscordRPC || discordRPC;
+
+      if (rpc) {
+        // Mettre à jour les paramètres RPC
+        rpc.updateRPCSettings({
           showStatus: true,
           showDetails: true,
           showImage: true
         });
         
-        // Reconnecter si nécessaire
-        await currentDiscordRPC.disconnect();
-        await currentDiscordRPC.initializeWithRetry(2, 500);
+        // Reconnecter si pas déjà connecté
+        if (!rpc.isConnected) {
+          await rpc.initializeWithRetry(2, 500);
+        }
+
+        // Force le broadcast car c'est un vrai changement
+        setTimeout(() => {
+          broadcastDiscordStatus(rpc, true);
+        }, 500);
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Erreur reset-discord-settings:', error);
-      return { success: false, error: error.message };
+      console.error('❌ Error resetting Discord settings:', error);
+      return { 
+        success: false, 
+        error: error.message 
+      };
     }
   });
-};
 
-// Exporter les deux fonctions
+  console.log('✅ Discord IPC handlers configured');
+}
+
+/**
+ * Mettre à jour la référence Discord RPC après initialisation
+ */
+function updateDiscordReference(discordRPC) {
+  currentDiscordRPC = discordRPC;
+  console.log('✅ Discord RPC reference updated in handlers');
+  
+  // ✅ Reset le cache pour forcer un broadcast lors du prochain événement
+  lastBroadcastedStatus = null;
+  
+  // Reconfigurer les event listeners
+  if (discordRPC) {
+    // Éviter les doubles listeners
+    discordRPC.removeAllListeners('connected');
+    discordRPC.removeAllListeners('disconnected');
+    discordRPC.removeAllListeners('error');
+    discordRPC.removeAllListeners('connectionError');
+
+    discordRPC.on('connected', (user) => {
+      console.log('✅ Discord connected event - User:', user?.username);
+      // Force le broadcast car c'est un vrai changement
+      broadcastDiscordStatus(discordRPC, true);
+    });
+
+    discordRPC.on('disconnected', () => {
+      console.log('❌ Discord disconnected event');
+      // Force le broadcast car c'est un vrai changement
+      broadcastDiscordStatus(discordRPC, true);
+    });
+
+    discordRPC.on('error', (error) => {
+      console.error('⚠️ Discord error event:', error?.message);
+      broadcastDiscordStatus(discordRPC);
+    });
+
+    discordRPC.on('connectionError', (error) => {
+      console.error('⚠️ Discord connection error event:', error?.message);
+      broadcastDiscordStatus(discordRPC);
+    });
+  }
+}
+
+// Exporter les fonctions
 module.exports = setupDiscordHandlers;
 module.exports.setSettingsWindow = setSettingsWindow;
 module.exports.broadcastDiscordStatus = broadcastDiscordStatus;
+module.exports.updateDiscordReference = updateDiscordReference;

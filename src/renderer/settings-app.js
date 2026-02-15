@@ -1,4 +1,5 @@
 const { ipcRenderer } = require('electron');
+const LauncherVersion = require('../main/launcher-version.js');
 
 let originalSettings = {};
 let currentSettings = {};
@@ -20,19 +21,25 @@ async function loadSettings() {
     originalSettings = JSON.parse(JSON.stringify(settings));
     currentSettings = JSON.parse(JSON.stringify(settings));
     
-    setTimeout(() => {
+    setTimeout(async () => {
       const gameDirInput = document.getElementById('game-dir-input');
       const discordToggle = document.getElementById('discord-rpc-toggle');
       const fullscreenToggle = document.getElementById('fullscreen-toggle');
       const ramSlider = document.getElementById('ram-slider');
       const ramValue = document.getElementById('ram-value');
+      const ramHelpText = document.getElementById('ram-help-text');
+      
+      // Get actual system RAM
+      const systemRam = await ipcRenderer.invoke('get-system-ram');
       
       if (gameDirInput) gameDirInput.value = settings.gameDirectory || '';
       if (discordToggle) discordToggle.checked = settings.discordRPC || false;
       if (fullscreenToggle) fullscreenToggle.checked = settings.fullscreen || false;
       if (ramSlider) {
-        ramSlider.value = settings.ramAllocation || 4;
+        ramSlider.max = systemRam;
+        ramSlider.value = Math.min(settings.ramAllocation || 4, systemRam);
         if (ramValue) ramValue.textContent = `${ramSlider.value} GB`;
+        if (ramHelpText) ramHelpText.textContent = `Allocate between 1 and ${systemRam} GB of RAM for Minecraft`;
       }
     }, 100);
   } catch (error) {
@@ -241,8 +248,6 @@ class DiscordTestManager {
       }
 
       this.setupEventListeners();
-      this.checkInitialStatus();
-      this.startAutoCheck();
     }, 500);
   }
 
@@ -550,11 +555,24 @@ function renderSettings() {
   
   app.innerHTML = `
     <div class="titlebar">
-      <div class="titlebar-title">Parametres - CraftLauncher</div>
+      <div class="titlebar-title">Parametres - ${LauncherVersion.getName()}</div>
       <div class="titlebar-buttons">
-        <button class="titlebar-button" id="minimize-btn">−</button>
-        <button class="titlebar-button" id="maximize-btn">□</button>
-        <button class="titlebar-button close" id="close-btn">×</button>
+        <button class="titlebar-button minimize" id="minimize-btn" title="Réduire">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+        <button class="titlebar-button maximize" id="maximize-btn" title="Agrandir">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+          </svg>
+        </button>
+        <button class="titlebar-button close" id="close-btn" title="Fermer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -591,7 +609,7 @@ function renderSettings() {
         </div>
 
         <div class="settings-footer">
-          <p>CraftLauncher v3.1.56</p>
+          <p>${LauncherVersion.getFullVersion()}</p>
           <p>2026 Tous droits reserves</p>
         </div>
       </div>
@@ -652,7 +670,7 @@ function renderSettings() {
                   <span id="ram-value" style="color: #6366f1; font-weight: 600; font-size: 14px;">4 GB</span>
                 </div>
               </div>
-              <p class="help-text">Allouer entre 1 et 16 GB de RAM pour Minecraft</p>
+              <p id="ram-help-text" class="help-text">Allocate between 1 and 16 GB of RAM for Minecraft</p>
             </div>
           </div>
 
@@ -864,7 +882,7 @@ function renderSettings() {
                 <input type="checkbox" id="discord-image-toggle" style="width: 18px; height: 18px; margin-right: 12px; cursor: pointer;">
                 <span>Afficher les images</span>
               </label>
-              <p class="help-text">Affiche le logo Minecraft et CraftLauncher dans Discord</p>
+              <p class="help-text">Affiche le logo Minecraft et ${LauncherVersion.getName()} dans Discord</p>
             </div>
           </div>
 
@@ -930,19 +948,18 @@ function renderSettings() {
         <div class="settings-section" id="about-tab" style="display: none;">
           <h2>A propos</h2>
           <div class="settings-card">
-            <h3>CraftLauncher</h3>
+            <h3>${LauncherVersion.getName()}</h3>
             <p style="color: #d1d5db; line-height: 1.8; margin-bottom: 20px;">
-              <strong style="color: #6366f1; font-size: 16px;">Version:</strong> 3.1.56<br>
+              <strong style="color: #6366f1; font-size: 16px;">Version:</strong> ${LauncherVersion.getVersionString()}<br>
               <strong style="color: #6366f1;">Developpeur:</strong> Pharos<br>
               <strong style="color: #6366f1;">Licence:</strong> CLv1<br>
-              <strong style="color: #6366f1;">Plateforme:</strong> Electron + Node.js
             </p>
           </div>
 
           <div class="settings-card">
             <h3>Description</h3>
             <p style="color: #d1d5db; line-height: 1.8;">
-              CraftLauncher est un launcher Minecraft complet et moderne offrant une experience utilisateur exceptionnelle. 
+              ${LauncherVersion.getName()} est un launcher Minecraft complet et moderne offrant une experience utilisateur exceptionnelle. 
               Le projet combine la puissance d'Electron avec Node.js pour fournir une application de bureau performante et intuitive.
             </p>
           </div>
@@ -995,17 +1012,15 @@ function renderSettings() {
     </div>
   `;
 
-  // ✅ TITLEBAR BUTTONS
-  document.getElementById('minimize-btn').addEventListener('click', () => {
-    ipcRenderer.send('minimize-settings-window');
-  });
-
-  document.getElementById('maximize-btn').addEventListener('click', () => {
-    ipcRenderer.send('maximize-settings-window');
-  });
-
-  document.getElementById('close-btn').addEventListener('click', () => {
-    ipcRenderer.send('close-settings-window');
+  // ✅ TITLEBAR BUTTONS - Utiliser .closest() pour gérer les clics sur les SVG enfants
+  document.addEventListener('click', (e) => {
+    const minimizeBtn = e.target.closest('#minimize-btn');
+    const maximizeBtn = e.target.closest('#maximize-btn');
+    const closeBtn = e.target.closest('#close-btn');
+    
+    if (minimizeBtn) ipcRenderer.send('minimize-settings-window');
+    else if (maximizeBtn) ipcRenderer.send('maximize-settings-window');
+    else if (closeBtn) ipcRenderer.send('close-settings-window');
   });
 
   // ✅ TABS MENU
@@ -1051,12 +1066,17 @@ function renderSettings() {
       const confirm = window.confirm('Êtes-vous sûr de vouloir vous déconnecter ?');
       if (confirm) {
         try {
+          logoutBtn.disabled = true;
+          const original = logoutBtn.textContent;
+          logoutBtn.textContent = 'Déconnexion...';
           await ipcRenderer.invoke('logout-account');
           ipcRenderer.send('close-settings-window');
           ipcRenderer.send('logout-from-settings');
           alert('✓ Vous êtes déconnecté');
         } catch (error) {
           alert('✗ Erreur lors de la déconnexion');
+          logoutBtn.disabled = false;
+          logoutBtn.textContent = 'Se déconnecter';
         }
       }
     });
@@ -1387,7 +1407,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   const currentVersionEl = document.getElementById('current-version');
   if (currentVersionEl) {
-    currentVersionEl.textContent = '3.1.56';
+    currentVersionEl.textContent = '${LAUNCHERVERSION.GETFULLVERSION()}';
   }
   
   // 🔔 Signaler au main process que la fenêtre est prête

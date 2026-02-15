@@ -1,4 +1,5 @@
 const { BrowserWindow, session } = require('electron');
+const LauncherVersion = require('./launcher-version.js');
 const fetch = require('node-fetch');
 const Store = require('electron-store');
 
@@ -9,23 +10,34 @@ class MicrosoftAuth {
     this.store = new Store();
     this.tokenCache = null;
     this.authInProgress = false;
+    this.authWindow = null;
+    this.authPromise = null;
   }
 
   /**
    * ✅ AUTHENTIFICATION PRINCIPALE - RÉSILIENTE ET ROBUSTE
    */
   async authenticate() {
-    if (this.authInProgress) {
-      return { success: false, error: 'Une authentification est déjà en cours' };
+    // ✅ Si une fenêtre existe déjà, la fermer et bloquer
+    if (this.authWindow && !this.authWindow.isDestroyed()) {
+      console.log('⚠️ Une fenêtre d\'authentification existe déjà');
+      this.authWindow.focus();
+      return { success: false, error: 'Une fenêtre d\'authentification est déjà ouverte' };
+    }
+
+    // ✅ Si une authentification est en cours, retourner la même promesse
+    if (this.authInProgress && this.authPromise) {
+      console.log('⚠️ Authentification déjà en cours, réutilisation de la promesse existante');
+      return this.authPromise;
     }
 
     this.authInProgress = true;
 
-    return new Promise((resolve) => {
+    this.authPromise = new Promise((resolve) => {
       try {
         const authSession = session.fromPartition('persist:auth');
         
-        const authWindow = new BrowserWindow({
+        this.authWindow = new BrowserWindow({
           width: 600,
           height: 700,
           show: true,
@@ -38,28 +50,46 @@ class MicrosoftAuth {
           }
         });
 
-        authWindow.webContents.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+        this.authWindow.webContents.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
 
         const authUrl = `https://login.live.com/oauth20_authorize.srf?client_id=${this.clientId}&response_type=code&redirect_uri=${encodeURIComponent(this.redirectUri)}&scope=XboxLive.signin%20offline_access&prompt=select_account`;
 
         console.log('🔐 Starting Microsoft authentication...');
-        authWindow.loadURL(authUrl);
+        this.authWindow.loadURL(authUrl);
 
         let isProcessing = false;
+        let windowClosed = false;
+        
         const timeout = setTimeout(() => {
-          if (!isProcessing && authWindow && !authWindow.isDestroyed()) {
-            authWindow.close();
+          if (!isProcessing && this.authWindow && !this.authWindow.isDestroyed()) {
+            windowClosed = true;
+            this.authWindow.close();
+            this.authWindow = null;
             this.authInProgress = false;
+            this.authPromise = null;
             resolve({ success: false, error: 'Timeout authentification (5 minutes)' });
           }
         }, 5 * 60 * 1000);
 
         const handleUrl = async (url) => {
-          if (isProcessing) return;
+          // Empêcher le traitement multiple
+          if (isProcessing || windowClosed) return;
+          
+          // Ignore Microsoft error pages and redirects
+          if (url.includes('login.live.com/oauth20_desktop.srf') && !url.includes('code=')) {
+            return;
+          }
           
           if (url.includes('code=') || url.includes('error=')) {
             isProcessing = true;
             clearTimeout(timeout);
+            
+            // ✅ FERMER LA FENÊTRE IMMÉDIATEMENT
+            if (this.authWindow && !this.authWindow.isDestroyed()) {
+              windowClosed = true;
+              this.authWindow.close();
+              this.authWindow = null;
+            }
             
             try {
               const urlParams = new URL(url);
@@ -68,12 +98,12 @@ class MicrosoftAuth {
               const errorDescription = urlParams.searchParams.get('error_description');
 
               if (error) {
-                console.error('❌ Erreur authentification:', errorDescription || error);
-                authWindow.close();
+                console.error('❌ Authentication error:', errorDescription || error);
                 this.authInProgress = false;
+                this.authPromise = null;
                 resolve({ 
                   success: false, 
-                  error: errorDescription || 'Authentification annulée' 
+                  error: errorDescription || 'Authentication cancelled' 
                 });
                 return;
               }
@@ -81,89 +111,93 @@ class MicrosoftAuth {
               if (code) {
                 console.log('✅ Authorization code received');
                 const result = await this.completeAuthFlow(code);
-                authWindow.close();
                 this.authInProgress = false;
+                this.authPromise = null;
                 resolve(result);
               }
             } catch (error) {
-              authWindow.close();
-              clearTimeout(timeout);
               this.authInProgress = false;
-              console.error('❌ Erreur dans handleUrl:', error.message);
+              this.authPromise = null;
+              console.error('❌ Error in handleUrl:', error.message);
               resolve({ success: false, error: error.message });
             }
           }
         };
 
-        authWindow.webContents.on('did-navigate', (event, url) => handleUrl(url));
-        authWindow.webContents.on('will-redirect', (event, url) => handleUrl(url));
+        // Utiliser seulement will-redirect pour éviter les doubles déclenchements
+        this.authWindow.webContents.on('will-redirect', (event, url) => handleUrl(url));
 
-        authWindow.on('closed', () => {
+        this.authWindow.on('closed', () => {
           clearTimeout(timeout);
+          this.authWindow = null;
           if (!isProcessing) {
             this.authInProgress = false;
-            resolve({ success: false, error: 'Fenêtre d\'authentification fermée' });
+            this.authPromise = null;
+            resolve({ success: false, error: 'Authentication window closed' });
           }
         });
 
-        authWindow.webContents.on('crashed', () => {
+        this.authWindow.webContents.on('crashed', () => {
           clearTimeout(timeout);
+          this.authWindow = null;
           this.authInProgress = false;
-          resolve({ success: false, error: 'Fenêtre plantée' });
+          this.authPromise = null;
+          resolve({ success: false, error: 'Window crashed' });
         });
 
       } catch (error) {
+        this.authWindow = null;
         this.authInProgress = false;
-        console.error('❌ Erreur authentification:', error);
+        this.authPromise = null;
+        console.error('❌ Authentication error:', error);
         resolve({ success: false, error: error.message });
       }
     });
+
+    return this.authPromise;
   }
 
-  /**
-   * ✅ FLUX D'AUTHENTIFICATION COMPLET
-   */
   async completeAuthFlow(code) {
     try {
       console.log('📋 Step 1: Exchanging code for tokens...');
       const tokens = await this.exchangeCodeForTokens(code);
       if (!tokens?.access_token) {
-        return { success: false, error: 'Impossible d\'obtenir le token d\'accès' };
+        return { success: false, error: 'Unable to get access token' };
       }
-      console.log('✅ Tokens Microsoft obtenus');
+      console.log('✅ Microsoft tokens obtained');
 
       console.log('📋 Step 2: Xbox Live authentication...');
       const xboxToken = await this.authenticateXbox(tokens.access_token);
       if (!xboxToken) {
-        return { success: false, error: 'Erreur authentification Xbox Live' };
+        return { success: false, error: 'Xbox Live authentication error' };
       }
-      console.log('✅ Token Xbox obtenu');
+      console.log('✅ Xbox token obtained');
 
       console.log('📋 Step 3: Getting XSTS token...');
       const xstsToken = await this.authenticateXSTS(xboxToken);
       if (!xstsToken?.token) {
-        return { success: false, error: 'Erreur obtention token XSTS' };
+        return { success: false, error: 'XSTS token error' };
       }
-      console.log('✅ Token XSTS obtenu');
+      console.log('✅ XSTS token obtained');
 
       console.log('📋 Step 4: Minecraft authentication...');
       const mcToken = await this.authenticateMinecraft(xstsToken);
       if (!mcToken) {
-        return { success: false, error: 'Erreur obtention token Minecraft' };
+        return { success: false, error: 'Minecraft token error' };
       }
-      console.log('✅ Token Minecraft obtenu');
+      console.log('✅ Minecraft token obtained');
 
       console.log('📋 Step 5: Getting Minecraft profile...');
       const profile = await this.getMinecraftProfile(mcToken);
       if (!profile?.name || !profile?.id) {
         return { 
           success: false, 
-          error: 'Aucun profil Minecraft trouvé.\n\n⚠️ Assurez-vous d\'avoir acheté Minecraft Java Edition sur votre compte Microsoft.' 
+          error: 'No Minecraft profile found.\n\n⚠️ Make sure you have purchased Minecraft Java Edition on your Microsoft account.' 
         };
       }
       console.log('✅ Profile found:', profile.name);
 
-      // ✅ SAUVEGARDER LES DONNÉES
+      // ✅ SAVE DATA
       const authData = {
         type: 'microsoft',
         username: profile.name,
@@ -182,7 +216,7 @@ class MicrosoftAuth {
       return { success: true, data: authData };
 
     } catch (error) {
-      console.error('❌ Erreur completeAuthFlow:', error);
+      console.error('❌ Authentication error:', error);
       return { success: false, error: error.message };
     }
   }

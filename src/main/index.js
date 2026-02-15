@@ -5,12 +5,62 @@ const MinecraftLauncher = require('./minecraft-launcher');
 const MicrosoftAuth = require('./microsoft-auth');
 const DiscordPresence = require('./discord-rpc');
 const setupDiscordHandlers = require('./discord-handler');
-const { setSettingsWindow } = require('./discord-handler');
+const LauncherVersion = require('./launcher-version.js');
+const { setSettingsWindow, broadcastDiscordStatus, updateDiscordReference } = require('./discord-handler');
+let _msAuthInstance = null;
+
 const si = require('systeminformation');
 const fetch = require('node-fetch');
 const mc = require('minecraft-protocol');
 const fs = require('fs');
 const os = require('os');
+
+
+const LAUNCHER_VERSION = '3.1.57';
+const LAUNCHER_BUILD = '20250214';
+const LAUNCHER_NAME = 'CraftLauncher';
+const __emojiMap = {
+  '✅': '[OK]',
+  '❌': '[ERR]',
+  '⚠️': '[WARN]',
+  '⚠': '[WARN]',
+  '⏳': '[WAIT]',
+  '🔗': '[LINK]',
+  '🔌': '[DISC]',
+  '🔧': '[CFG]',
+  '📡': '[NET]',
+  '🔄': '[RETRY]',
+  '🧪': '[TEST]',
+  '📦': '[PKG]',
+  '📥': '[DL]',
+  '🏠': '[HOME]',
+  '🎮': '[PLAY]',
+  '🌐': '[NET]',
+  '👤': '[USER]',
+  '🧹': '[CLEAN]',
+  '⏱️': '[TIME]',
+  '🚀': '[LAUNCH]',
+  '✓': '[OK]'
+};
+function __sanitizeText(t) {
+  if (typeof t !== 'string') return t;
+  let out = t;
+  for (const k in __emojiMap) {
+    if (out.includes(k)) out = out.split(k).join(__emojiMap[k]);
+  }
+  return out;
+}
+const __origConsole = {
+  log: console.log,
+  info: console.info,
+  warn: console.warn,
+  error: console.error
+};
+console.log = (...args) => __origConsole.log.apply(console, args.map(__sanitizeText));
+console.info = (...args) => __origConsole.info.apply(console, args.map(__sanitizeText));
+console.warn = (...args) => __origConsole.warn.apply(console, args.map(__sanitizeText));
+console.error = (...args) => __origConsole.error.apply(console, args.map(__sanitizeText));
+console.log(`🚀 ${LAUNCHER_NAME} v${LAUNCHER_VERSION} (Build ${LAUNCHER_BUILD})`);
 
 // Chemins pour les mods
 const MODS_DIR = path.join(app.getPath('userData'), 'mods');
@@ -42,23 +92,36 @@ const originalSpawn = childProcess.spawn;
 const store = new Store();
 let mainWindow;
 let settingsWindow = null;
-let logsWindow = null; // ✅ FENÊTRE DE LOGS
-let discordRPC = new DiscordPresence();
+let logsWindow = null;
+let discordRPC = null;
+let _discordCleaned = false;
 let minecraftRunning = false;
 let lastLaunchAttempt = 0;
-const LAUNCH_COOLDOWN = 1000; // 1 seconde minimum entre les tentatives
-let modsLoadedCount = 0; // Tracker le nombre de mods chargés
-let currentLogs = []; // ✅ STOCKER LES LOGS
+// Ignorer certaines erreurs bénignes lors de l’extinction (race Discord RPC)
+process.on('uncaughtException', (err) => {
+  try {
+    if (err && (err.code === 'ERR_STREAM_WRITE_AFTER_END' || /write after end/i.test(err.message || ''))) {
+      console.warn('Ignored shutdown error:', err.message || err);
+      return;
+    }
+  } catch (_) {}
+  throw err;
+});
+const LAUNCH_COOLDOWN = 1000;
+let modsLoadedCount = 0;
+let currentLogs = [];
 
-// ✅ Configurer les handlers Discord
-setupDiscordHandlers(discordRPC, store, settingsWindow);
+// ✅ CONFIGURER LES HANDLERS IPC IMMÉDIATEMENT
+updateDiscordReference(discordRPC);
+setupDiscordHandlers(null, store, null);
+console.log('✅ Discord IPC handlers registered');
 
 function createWindow() {
   const iconPath = path.join(__dirname, "../../assets/icon.ico");
   
   mainWindow = new BrowserWindow({
     width: 1200,
-    height: 700,
+    height: 800,
     frame: false,
     backgroundColor: '#0f172a',
     ...(fs.existsSync(iconPath) && { icon: iconPath }),
@@ -78,24 +141,8 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  // ✅ RACCOURCIS CLAVIER
-  const { globalShortcut } = require('electron');
-  
-  globalShortcut.register('Control+L', () => {
-    mainWindow.webContents.send('keyboard-launch');
-  });
-  
-  globalShortcut.register('Control+S', () => {
-    mainWindow.webContents.send('keyboard-settings');
-  });
-  
-  globalShortcut.register('Control+H', () => {
-    mainWindow.webContents.send('keyboard-home');
-  });
-
-  mainWindow.on('closed', () => {
+  mainWindow.on('closed', () => {    
     mainWindow = null;
-    globalShortcut.unregisterAll();
   });
 }
 
@@ -313,14 +360,15 @@ function createLogsWindow() {
         }
 
         .titlebar {
-          height: 32px;
-          background: #0f172a;
-          border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+          height: 40px;
+          background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(20, 30, 50, 0.9) 100%);
+          border-bottom: 1px solid rgba(99, 102, 241, 0.15);
           display: flex;
           align-items: center;
           padding: 0 12px;
           -webkit-app-region: drag;
           user-select: none;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
         .titlebar-title {
@@ -332,42 +380,77 @@ function createLogsWindow() {
 
         .titlebar-buttons {
           display: flex;
-          gap: 8px;
+          gap: 10px;
           -webkit-app-region: no-drag;
+          align-items: center;
         }
 
-        .titlebar-btn {
-          width: 32px;
-          height: 32px;
-          border: none;
-          background: transparent;
+        .titlebar-button {
+          width: 36px;
+          height: 36px;
+          background: rgba(99, 102, 241, 0.08);
+          border: 1px solid rgba(99, 102, 241, 0.15);
           color: #cbd5e1;
           cursor: pointer;
-          font-size: 18px;
+          font-size: 14px;
+          border-radius: 6px;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: all 0.2s;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          -webkit-app-region: no-drag;
+          user-select: none;
         }
-
-        .titlebar-btn:hover {
-          background: rgba(99, 102, 241, 0.1);
-          color: #6366f1;
+        .titlebar-button:hover {
+          background: rgba(99, 102, 241, 0.2);
+          border-color: rgba(99, 102, 241, 0.3);
+          color: #f1f5f9;
+          transform: translateY(-1px);
         }
-
-        .titlebar-btn.close:hover {
-          background: #ef4444;
-          color: white;
+        .titlebar-button:active {
+          transform: translateY(0);
+          background: rgba(99, 102, 241, 0.15);
+        }
+        .titlebar-button.minimize:hover {
+          background: rgba(34, 197, 94, 0.12);
+          border-color: rgba(34, 197, 94, 0.25);
+          color: #4ade80;
+        }
+        .titlebar-button.maximize:hover {
+          background: rgba(59, 130, 246, 0.12);
+          border-color: rgba(59, 130, 246, 0.25);
+          color: #60a5fa;
+        }
+        .titlebar-button.close:hover {
+          background: rgba(239, 68, 68, 0.2);
+          border-color: rgba(239, 68, 68, 0.4);
+          color: #ff6b6b;
+        }
+        .titlebar-button.close:active {
+          background: rgba(239, 68, 68, 0.25);
         }
       </style>
     </head>
     <body>
       <div class="titlebar">
-        <div class="titlebar-title">🎮 Mission Control / CraftLauncher with ${os.version}</div>
+        <div class="titlebar-title">🎮 Mission Control / ${LAUNCHER_NAME} with ${os.version}</div>
         <div class="titlebar-buttons">
-          <button class="titlebar-btn" id="minimize-btn">−</button>
-          <button class="titlebar-btn" id="maximize-btn">□</button>
-          <button class="titlebar-btn close" id="close-btn">✕</button>
+          <button class="titlebar-button minimize" id="minimize-btn" title="Réduire">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+          <button class="titlebar-button maximize" id="maximize-btn" title="Agrandir">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+            </svg>
+          </button>
+          <button class="titlebar-button close" id="close-btn" title="Fermer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -551,6 +634,9 @@ ipcMain.handle('get-account-info', async () => {
 
 async function initializeDiscord() {
   try {
+    console.log('🎮 Initializing Discord RPC...');
+    
+    // Créer l'instance Discord
     discordRPC = new DiscordPresence({
       clientId: '1459481513513975971',
       autoReconnect: true,
@@ -558,52 +644,36 @@ async function initializeDiscord() {
       maxReconnectAttempts: 10
     });
 
-    // Charger et appliquer les paramètres sauvegardés
+    // Charger les paramètres
     discordRPC.updateRPCSettings({
       showStatus: store.get('discord.showStatus', true),
       showDetails: store.get('discord.showDetails', true),
       showImage: store.get('discord.showImage', true)
     });
 
-    // Écouter les événements Discord
+    // ✅ METTRE À JOUR LA RÉFÉRENCE DISCORD DANS LES HANDLERS
+    const { updateDiscordReference } = require('./discord-handler');
+    updateDiscordReference(discordRPC);
+
+    // Écouter les événements (géré maintenant dans updateDiscordReference)
+    // Mais on garde le setLauncher ici
     discordRPC.on('connected', (user) => {
       console.log('✅ Discord connected:', user.username);
-      
-      // Envoyer l'événement à la fenêtre settings si elle existe
-      if (settingsWindow && !settingsWindow.isDestroyed()) {
-        settingsWindow.webContents.send('discord-connected', user);
-      }
-      
-      // Définir le statut initial
-      discordRPC.setLauncher(store.get('account.username') || 'Joueur');
-    });
-
-    discordRPC.on('disconnected', () => {
-      console.log('❌ Discord disconnected');
-      
-      if (settingsWindow && !settingsWindow.isDestroyed()) {
-        settingsWindow.webContents.send('discord-disconnected');
+      const authData = store.get('authData');
+      if (authData) {
+        discordRPC.setLauncher(authData.username || 'Joueur');
       }
     });
 
-    discordRPC.on('error', (error) => {
-      console.error('⚠️ Erreur Discord:', error.message);
-      
-      if (settingsWindow && !settingsWindow.isDestroyed()) {
-        settingsWindow.webContents.send('discord-error', error);
-      }
-    });
-
-    discordRPC.on('activityUpdated', (activity) => {
-      if (settingsWindow && !settingsWindow.isDestroyed()) {
-        settingsWindow.webContents.send('discord-activity-updated', activity);
-      }
-    });
-
-    // Se connecter à Discord avec retries (avec petit délai initial)
+    // Se connecter avec retries
     setTimeout(async () => {
-      await discordRPC.initializeWithRetry(3, 1000);
-    }, 500);
+      const success = await discordRPC.initializeWithRetry(3, 2000);
+      if (success) {
+        console.log('✅ Discord RPC initialized successfully');
+      } else {
+        console.log('⚠️ Discord RPC failed to initialize (Discord may not be running)');
+      }
+    }, 1000);
     
   } catch (error) {
     console.error('❌ Erreur initialisation Discord:', error);
@@ -627,16 +697,17 @@ app.whenReady().then(async () => {
 
 // Nettoyer Discord à la fermeture
 app.on('before-quit', async () => {
-  if (discordRPC) {
-    await discordRPC.destroy();
+  try {
+    if (discordRPC && !_discordCleaned) {
+      _discordCleaned = true;
+      try { await discordRPC.destroy(); } catch (e) { console.error('Discord destroy error:', e?.message || e); }
+    }
+  } catch (e) {
+    // ignorer toute erreur de fermeture
   }
 });
 
 app.on('window-all-closed', () => {
-  if (discordRPC) {
-    discordRPC.destroy();
-  }
-  
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -855,8 +926,10 @@ ipcMain.handle('get-available-ram', async () => {
 // Authentification Microsoft
 ipcMain.handle('login-microsoft', async () => {
   try {
-    const auth = new MicrosoftAuth();
-    const result = await auth.authenticate();
+    if (!_msAuthInstance) {
+      _msAuthInstance = new MicrosoftAuth();
+    }
+    const result = await _msAuthInstance.authenticate();
     
     if (result.success) {
       store.set('authData', result.data);
@@ -1087,7 +1160,7 @@ ipcMain.handle('test-notification', async (event, options) => {
     
     const notif = new Notification({
       title: 'Test de notification',
-      body: 'Ceci est un test de notification CraftLauncher',
+      body: `Ceci est un test de notification ${LAUNCHER_NAME}`,
       icon: path.join(__dirname, "../../assets/icon.ico")
     });
 
@@ -1453,9 +1526,26 @@ ipcMain.handle('save-settings', async (event, settings) => {
 // ✅ HANDLER LANCER MINECRAFT AVEC VÉRIFICATION AUTH
 ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
   try {
-    // ✅ PROTECTION: Cooldown entre les lancements
+    console.log('='.repeat(60));
+    console.log('🚀 LANCEMENT MINECRAFT');
+    console.log('='.repeat(60));
+    console.log('Profile:', profile);
+    console.log('Server:', serverIP);
+    console.log('LauncherVersion:', typeof LauncherVersion !== 'undefined' ? LauncherVersion.version : 'UNDEFINED');
+    
+    // ✅ VÉRIFICATION 1: LauncherVersion existe
+    if (typeof LauncherVersion === 'undefined') {
+      console.error('❌ ERREUR CRITIQUE: LauncherVersion non défini');
+      return {
+        success: false,
+        error: 'Erreur de configuration du launcher. Veuillez redémarrer.'
+      };
+    }
+
+    // ✅ VÉRIFICATION 2: Cooldown entre lancements
     const now = Date.now();
     if (now - lastLaunchAttempt < LAUNCH_COOLDOWN) {
+      console.warn('⚠️ Cooldown actif');
       return {
         success: false,
         error: 'Veuillez attendre avant de relancer'
@@ -1463,50 +1553,66 @@ ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
     }
     lastLaunchAttempt = now;
 
+    // ✅ VÉRIFICATION 3: Minecraft déjà en cours
     if (minecraftRunning) {
+      console.warn('⚠️ Minecraft déjà en cours');
       return {
         success: false,
         error: 'Minecraft est déjà en cours d\'exécution !'
       };
     }
 
+    // ✅ VÉRIFICATION 4: Authentification
     const authData = store.get('authData', null);
-    const settings = store.get('settings', {});
-    
     if (!authData) {
+      console.error('❌ Pas de données d\'authentification');
       return {
         success: false,
         error: 'Veuillez vous connecter d\'abord'
       };
     }
+    console.log('✅ Auth:', authData.type, '-', authData.username);
 
-    // ✅ VÉRIFICATION: OFFLINE NE PEUT PAS LANCER SANS VERSION EXISTANTE
+    // ✅ VÉRIFICATION 5: Mode offline - version doit exister
+    const settings = store.get('settings', {});
+    const gameDir = settings.gameDirectory || path.join(os.homedir(), 'AppData', 'Roaming', '.minecraft');
+    
     if (authData.type === 'offline') {
-      // Vérifier que la version existe déjà localement
-      const gameDir = settings.gameDirectory || path.join(os.homedir(), 'AppData', 'Roaming', '.minecraft');
       const versionPath = path.join(gameDir, 'versions', profile.version);
       
+      console.log('📂 Vérification version offline:', versionPath);
+      
       if (!fs.existsSync(versionPath)) {
+        console.error('❌ Version non trouvée en mode offline');
         return {
           success: false,
           error: `⚠️ Version ${profile.version} non trouvée.\n\nEn mode hors ligne, vous devez télécharger les versions via une connexion Microsoft d'abord, ou utiliser une version déjà installée.`
         };
       }
+      console.log('✅ Version trouvée');
     }
 
+    // ✅ MARQUER COMME EN COURS
     minecraftRunning = true;
+    console.log('🎮 Minecraft marqué comme en cours de lancement');
 
-    const gameDir = settings.gameDirectory || path.join(os.homedir(), 'AppData', 'Roaming', '.minecraft');
-    const launcher = new MinecraftLauncher();
-    
-    console.log(`\n🚀 Lancement Minecraft (${authData.type})...`);
-    
     // ✅ OUVRIR LA FENÊTRE DE LOGS
-    createLogsWindow();
-    currentLogs = []; // Réinitialiser les logs
-    
     try {
-      // ✅ ENVOYER LES MISES À JOUR DE PROGRESSION AU RENDERER
+      createLogsWindow();
+      currentLogs = [];
+      console.log('📋 Fenêtre de logs ouverte');
+    } catch (error) {
+      console.warn('⚠️ Impossible d\'ouvrir la fenêtre de logs:', error.message);
+    }
+
+    // ✅ INITIALISER LE LAUNCHER
+    const launcher = new MinecraftLauncher();
+    console.log('✅ Launcher initialisé');
+
+    try {
+      // ✅ LANCER MINECRAFT
+      console.log('🚀 Lancement en cours...');
+      
       const result = await launcher.launch({
         authData: authData,
         version: profile.version,
@@ -1523,21 +1629,63 @@ ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
               message: progress.message
             });
           }
+          
+          // Log de progression
+          console.log(`📊 ${progress.type}: ${progress.percent}%`);
         }
       });
 
-      if (discordRPC.enabled) {
-        await discordRPC.setPlaying(profile.version, { server: serverIP });
+      console.log('✅ Résultat lancement:', result);
+
+      // ✅ METTRE À JOUR DISCORD RPC (avec vérification)
+      if (discordRPC && discordRPC.connected) {
+        try {
+          console.log('📡 Mise à jour Discord RPC...');
+          await discordRPC.setPlaying(profile.version);
+          console.log('✅ Discord RPC mis à jour');
+        } catch (error) {
+          console.error('⚠️ Erreur Discord RPC:', error.message);
+          // Ne pas bloquer le lancement si Discord échoue
+        }
+      } else {
+        console.log('⚠️ Discord RPC non disponible (normal si Discord fermé)');
       }
+      
+      console.log('='.repeat(60));
+      console.log('✅ LANCEMENT TERMINÉ');
+      console.log('='.repeat(60));
       
       return {
         success: result.success !== false,
-        message: result.error ? `Erreur: ${result.error}` : 'Minecraft lancé !'
+        message: result.error ? `Erreur: ${result.error}` : 'Minecraft lancé avec succès !'
       };
+
+    } catch (launchError) {
+      console.error('❌ Erreur lors du lancement:', launchError);
+      console.error('Stack:', launchError.stack);
+      
+      // ✅ Réinitialiser l'état
+      minecraftRunning = false;
+      
+      return {
+        success: false,
+        error: `Erreur de lancement: ${launchError.message}`
+      };
+      
     } finally {
+      // ✅ Réinitialiser après un délai
       setTimeout(() => {
+        console.log('🧹 Nettoyage après lancement');
         minecraftRunning = false;
-        // ✅ CLEANUP: Forcer le garbage collector
+        
+        // Discord RPC: remettre en idle
+        if (discordRPC && discordRPC.connected) {
+          discordRPC.setIdle().catch(err => {
+            console.warn('⚠️ Erreur Discord setIdle:', err.message);
+          });
+        }
+        
+        // Garbage collection si disponible
         if (global.gc) {
           global.gc();
         }
@@ -1545,11 +1693,18 @@ ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
     }
 
   } catch (error) {
-    console.error('❌ Erreur handler launch:', error);
+    console.error('='.repeat(60));
+    console.error('❌ ERREUR CRITIQUE HANDLER LAUNCH');
+    console.error('='.repeat(60));
+    console.error('Message:', error.message);
+    console.error('Stack:', error.stack);
+    console.error('='.repeat(60));
+    
     minecraftRunning = false;
+    
     return {
       success: false,
-      error: error.message
+      error: `Erreur critique: ${error.message}`
     };
   }
 });
@@ -1734,6 +1889,20 @@ ipcMain.handle('logout-account', async () => {
       }
     }
     
+    // Fermer la fenêtre des paramètres si elle est ouverte
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.close();
+      settingsWindow = null;
+    }
+    
+    // Forcer la fenêtre principale à afficher la page de login
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+      }
+      mainWindow.webContents.send('logout-from-settings');
+    }
+    
     console.log('✅ Account disconnected');
     return { success: true };
   } catch (error) {
@@ -1806,7 +1975,7 @@ ipcMain.on('open-folder', (event, folderPath) => {
 
 // ✅ UPDATES - FONCTION POUR EXTRAIRE LA VERSION DU NOM DE RELEASE
 function extractVersionFromReleaseName(releaseName) {
-  // Cherche un pattern comme "v3.1.56" ou "3.1.56" dans le nom
+  // Cherche un pattern comme "v3.1.57" ou "3.1.57" dans le nom
   const versionRegex = /v?(\d+\.\d+\.\d+)/i;
   const match = releaseName.match(versionRegex);
   return match ? match[1] : null;
@@ -1911,7 +2080,7 @@ ipcMain.handle('check-updates', async () => {
     
     // Récupérer les 5 dernières releases
     const response = await fetch('https://api.github.com/repos/pharos-off/minecraft-launcher/releases', {
-      headers: { 'User-Agent': 'CraftLauncher' }
+      headers: { 'User-Agent': '${LAUNCHER_NAME}' }
     });
     
     if (!response.ok) {
