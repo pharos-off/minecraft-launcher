@@ -1,6 +1,6 @@
 {
   "name": "velkora-client",
-  "version": "4.2.2",
+  "version": "4.2.3",
   "description": "Launcher Minecraft",
   "main": "src/main/index.js",
   "scripts": {
@@ -56,6 +56,12 @@
     "files": [
       "src/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
     ],
     "nsis": {
       "oneClick": false,

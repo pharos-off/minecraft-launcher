@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const { spawn } = require("child_process");
@@ -32,9 +32,21 @@ const networkManager = new NetworkManager({
 });
 
 
-const LAUNCHER_VERSION = '4.2.2';
+const LAUNCHER_VERSION = '4.2.3';
 const LAUNCHER_BUILD = '20260504';
 const LAUNCHER_NAME = 'Velkora Client';
+function getAssetPath(...segments) {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'assets', ...segments);
+  }
+
+  return path.join(__dirname, '../../assets', ...segments);
+}
+
+function getIconPath() {
+  return getAssetPath('icon.ico');
+}
+
 const __emojiMap = {
   '✅': '[OK]',
   '❌': '[ERR]',
@@ -309,23 +321,38 @@ ipcMain.handle('show-main-window', async () => {
 });
 
 function createWindow() {
-  const iconPath = path.join(__dirname, "../../assets/icon.ico");
+  const iconPath = path.resolve(getIconPath());
   
-  mainWindow = new BrowserWindow({
+  const windowOptions = {
     width: 1200,
     height: 800,
     frame: false,
     backgroundColor: '#0f172a',
     show: true,
-    ...(fs.existsSync(iconPath) && { icon: iconPath }),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
-  });
+  };
 
+  // Charger l'icône avec nativeImage si elle existe
+  if (fs.existsSync(iconPath)) {
+    try {
+      windowOptions.icon = nativeImage.createFromPath(iconPath);
+    } catch (e) {
+      console.warn('Erreur chargement icône:', e);
+    }
+  }
+  
+  mainWindow = new BrowserWindow(windowOptions);
+
+  // S'assurer que l'icône est définie sur Windows (taskbar)
   if (process.platform === 'win32' && fs.existsSync(iconPath)) {
-    mainWindow.setIcon(iconPath);
+    try {
+      mainWindow.setIcon(nativeImage.createFromPath(iconPath));
+    } catch (e) {
+      console.warn('Erreur setIcon:', e);
+    }
   }
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
@@ -366,9 +393,9 @@ function createSettingsWindow() {
     return;
   }
 
-  const iconPath = path.join(__dirname, "../../assets/icon.ico");
+  const iconPath = path.resolve(getIconPath());
 
-  settingsWindow = new BrowserWindow({
+  const windowOptions = {
     width: 900,
     height: 700,
     minWidth: 800,
@@ -379,9 +406,19 @@ function createSettingsWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
-    },
-    ...(fs.existsSync(iconPath) && { icon: iconPath })
-  });
+    }
+  };
+
+  // Charger l'icône avec nativeImage si elle existe
+  if (fs.existsSync(iconPath)) {
+    try {
+      windowOptions.icon = nativeImage.createFromPath(iconPath);
+    } catch (e) {
+      console.warn('Erreur chargement icône settings:', e);
+    }
+  }
+
+  settingsWindow = new BrowserWindow(windowOptions);
 
   // Mettre à jour la référence dans discord-handler
   setSettingsWindow(settingsWindow);
@@ -400,9 +437,9 @@ function createLogsWindow() {
     return;
   }
 
-  const iconPath = path.join(__dirname, "../../assets/icon.ico");
+  const iconPath = path.resolve(getIconPath());
 
-  logsWindow = new BrowserWindow({
+  const windowOptions = {
     width: 950,
     height: 600,
     minWidth: 700,
@@ -413,9 +450,19 @@ function createLogsWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
-    },
-    ...(fs.existsSync(iconPath) && { icon: iconPath })
-  });
+    }
+  };
+
+  // Charger l'icône avec nativeImage si elle existe
+  if (fs.existsSync(iconPath)) {
+    try {
+      windowOptions.icon = nativeImage.createFromPath(iconPath);
+    } catch (e) {
+      console.warn('Erreur chargement icône logs:', e);
+    }
+  }
+
+  logsWindow = new BrowserWindow(windowOptions);
 
   // Créer l'HTML de la fenêtre des logs
   const logsHTML = `
@@ -787,7 +834,7 @@ function createTray() {
   try {
     if (tray) return;
     const { Tray, Menu } = require('electron');
-    const iconPath = path.join(__dirname, "../../assets/icon.ico");
+    const iconPath = getIconPath();
     tray = new Tray(iconPath);
     tray.setToolTip(LAUNCHER_NAME || 'VellkoraMC');
     const contextMenu = Menu.buildFromTemplate([
@@ -903,13 +950,7 @@ ipcMain.handle('get-assets-path', async () => {
 
 // ✅ GET LOGO PATH
 ipcMain.handle('get-logo-path', async () => {
-  let logoPath;
-  
-  if (app.isPackaged) {
-    logoPath = path.join(process.resourcesPath, 'assets', 'icon.ico');
-  } else {
-    logoPath = path.join(__dirname, '../../assets/icon.ico');
-  }
+  const logoPath = getIconPath();
   
   // Convertir en URL file:// valide pour le renderer
   const fileUrl = 'file:///' + logoPath.replace(/\\/g, '/');
@@ -1128,6 +1169,11 @@ function addLog(message, type = 'info') {
 // Les logs de la fenêtre dédiée n'affichent désormais que les logs Minecraft (via onLog)
 
 app.whenReady().then(async () => {
+  // ✅ Configurer l'ID de l'app pour la barre des tâches Windows
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.velkora-client.app');
+  }
+  
   initModsDirectory();
 
   
@@ -1516,7 +1562,7 @@ ipcMain.handle('test-notification', async (event, options) => {
     const notif = new Notification({
       title: 'Test de notification',
       body: `Ceci est un test de notification ${LAUNCHER_NAME}`,
-      icon: path.join(__dirname, "../../assets/icon.ico")
+      icon: getIconPath()
     });
 
     notif.show();
@@ -2181,7 +2227,7 @@ ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
             const notif = new Notification({
               title: 'Connexion en cours',
               body: `Connexion au serveur ${serverIP}…`,
-              icon: path.join(__dirname, "../../assets/icon.ico")
+              icon: getIconPath()
             });
             notif.show();
           }
@@ -2284,7 +2330,7 @@ ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
           const notif = new Notification({
             title: 'Minecraft s’est fermé',
             body: `Code de sortie: ${result.code}`,
-            icon: path.join(__dirname, "../../assets/icon.ico")
+            icon: getIconPath()
           });
           notif.show();
         } catch (_) {}
@@ -2315,7 +2361,7 @@ ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
           const notif = new Notification({
             title: 'Minecraft lancé',
             body: serverIP ? `Connexion à ${serverIP}` : 'Bon jeu !',
-            icon: path.join(__dirname, "../../assets/icon.ico")
+            icon: getIconPath()
           });
           notif.show();
         }
@@ -2352,7 +2398,7 @@ ipcMain.handle('launch-minecraft', async (event, profile, serverIP) => {
           const notif = new Notification({
             title: 'Erreur de lancement',
             body: launchError.message || 'Une erreur est survenue',
-            icon: path.join(__dirname, "../../assets/icon.ico")
+            icon: getIconPath()
           });
           notif.show();
         }

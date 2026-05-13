@@ -51,41 +51,42 @@ async function loadSettings() {
     originalSettings = JSON.parse(JSON.stringify(settings));
     currentSettings = JSON.parse(JSON.stringify(settings));
     
-    setTimeout(async () => {
-      const gameDirInput = document.getElementById('game-dir-input');
-      const discordToggle = document.getElementById('discord-rpc-toggle');
-      const fullscreenToggle = document.getElementById('fullscreen-toggle');
-      const ramSlider = document.getElementById('ram-slider');
-      const ramValue = document.getElementById('ram-value');
-      const ramHelpText = document.getElementById('ram-help-text');
-      const startupToggle = document.getElementById('startup-toggle');
-      
-      // Get actual system RAM
-      const systemRam = await ipcRenderer.invoke('get-system-ram');
-      const startupEnabled = await ipcRenderer.invoke('get-startup-enabled');
-      
-      if (gameDirInput) {
-        gameDirInput.value = settings.gameDirectory || '';
-        gameDirInput.placeholder = 'Par défaut: AppData/Roaming/.minecraft';
-      }
-      if (discordToggle) discordToggle.checked = settings.discordRPC || false;
-      if (fullscreenToggle) fullscreenToggle.checked = settings.fullscreen || false;
-      const showLogsToggle = document.getElementById('show-logs-toggle');
-      if (showLogsToggle) showLogsToggle.checked = settings.showLogsWindow !== undefined ? settings.showLogsWindow : true;
-      const closeOnLaunchToggle = document.getElementById('close-launcher-toggle');
-      if (closeOnLaunchToggle) closeOnLaunchToggle.checked = settings.closeLauncherOnLaunch !== undefined ? settings.closeLauncherOnLaunch : false;
-      const javaPathInput = document.getElementById('java-path-input');
-      if (javaPathInput) javaPathInput.value = settings.javaPath || '';
-      const versionSelect = document.getElementById('settings-version-select');
-      if (versionSelect) versionSelect.value = settings.version || versionSelect.value;
-      if (startupToggle) startupToggle.checked = settings.startupOnBoot !== undefined ? settings.startupOnBoot : !!startupEnabled;
-      if (ramSlider) {
-        ramSlider.max = systemRam;
-        ramSlider.value = Math.min(settings.ramAllocation || 4, systemRam);
-        if (ramValue) ramValue.textContent = `${ramSlider.value} GB`;
-        if (ramHelpText) ramHelpText.textContent = `Allocate between 1 and ${systemRam} GB for Minecraft`;
-      }
-    }, 100);
+    const gameDirInput = document.getElementById('game-dir-input');
+    const discordToggle = document.getElementById('discord-rpc-toggle');
+    const fullscreenToggle = document.getElementById('fullscreen-toggle');
+    const ramSlider = document.getElementById('ram-slider');
+    const ramValue = document.getElementById('ram-value');
+    const ramHelpText = document.getElementById('ram-help-text');
+    const startupToggle = document.getElementById('startup-toggle');
+    
+    // Get actual system RAM
+    const systemRam = await ipcRenderer.invoke('get-system-ram');
+    const startupEnabled = await ipcRenderer.invoke('get-startup-enabled');
+    
+    if (gameDirInput) {
+      gameDirInput.value = settings.gameDirectory || '';
+      gameDirInput.placeholder = 'Par défaut: AppData/Roaming/.minecraft';
+    }
+    if (discordToggle) discordToggle.checked = settings.discordRPC || false;
+    if (fullscreenToggle) fullscreenToggle.checked = settings.fullscreen || false;
+    const showLogsToggle = document.getElementById('show-logs-toggle');
+    if (showLogsToggle) showLogsToggle.checked = settings.showLogsWindow !== undefined ? settings.showLogsWindow : true;
+    const closeOnLaunchToggle = document.getElementById('close-launcher-toggle');
+    if (closeOnLaunchToggle) closeOnLaunchToggle.checked = settings.closeLauncherOnLaunch !== undefined ? settings.closeLauncherOnLaunch : false;
+    const javaPathInput = document.getElementById('java-path-input');
+    if (javaPathInput) javaPathInput.value = settings.javaPath || '';
+    const versionSelect = document.getElementById('settings-version-select');
+    if (versionSelect) {
+      versionSelect.value = settings.version || versionSelect.value;
+      versionSelect.dispatchEvent(new Event('change'));
+    }
+    if (startupToggle) startupToggle.checked = settings.startupOnBoot !== undefined ? settings.startupOnBoot : !!startupEnabled;
+    if (ramSlider) {
+      ramSlider.max = systemRam;
+      ramSlider.value = Math.min(settings.ramAllocation || 4, systemRam);
+      if (ramValue) ramValue.textContent = `${ramSlider.value} GB`;
+      if (ramHelpText) ramHelpText.textContent = `Allocate between 1 and ${systemRam} GB for Minecraft`;
+    }
   } catch (error) {
     console.error('Erreur chargement parametres:', error);
   }
@@ -1053,6 +1054,13 @@ function renderSettings() {
               <label>Statut</label>
               <p id="update-status" style="color: #10b981; padding: 10px 0; font-weight: 500;">Verifiant les mises a jour...</p>
             </div>
+
+            <div class="setting-item" style="margin-top: 20px; display: none;" id="changelog-container">
+              <label>Changelog</label>
+              <div style="margin-top: 10px; padding: 12px; background: rgba(99, 102, 241, 0.05); border-radius: 8px; max-height: 250px; overflow-y: auto; border-left: 3px solid #6366f1;">
+                <pre id="release-notes" style="color: #cbd5e1; font-size: 12px; line-height: 1.5; margin: 0; white-space: pre-wrap; word-wrap: break-word; font-family: 'Courier New', monospace;">Chargement...</pre>
+              </div>
+            </div>
           </div>
 
           <div class="settings-card">
@@ -1479,6 +1487,14 @@ function renderSettings() {
     });
   }
 
+  function updateJavaStatusMessage(message, color) {
+    const detectedPathEl = document.getElementById('java-detected-path');
+    if (detectedPathEl) {
+      detectedPathEl.textContent = message;
+      detectedPathEl.style.color = color;
+    }
+  }
+
   // ✅ SAVE GENERAL SETTINGS
   const saveBtn = document.getElementById('save-settings-btn');
   if (saveBtn) {
@@ -1489,13 +1505,25 @@ function renderSettings() {
 
       try {
         const settings = {
+          ...(currentSettings || {}),
           gameDirectory: document.getElementById('game-dir-input').value,
           discordRPC: document.getElementById('discord-rpc-toggle').checked,
           fullscreen: document.getElementById('fullscreen-toggle').checked,
-          ramAllocation: parseInt(document.getElementById('ram-slider').value),
+          ramAllocation: parseInt(document.getElementById('ram-slider').value, 10),
           defaultServer: (document.getElementById('default-server-input')?.value || '').trim(),
-          startupOnBoot: !!document.getElementById('startup-toggle')?.checked
+          startupOnBoot: !!document.getElementById('startup-toggle')?.checked,
+          javaPath: (document.getElementById('java-path-input')?.value || '').trim(),
+          version: document.getElementById('settings-version-select')?.value || currentSettings?.version,
+          mcWidth: parseInt(document.getElementById('mc-width')?.value || currentSettings?.mcWidth || '1280', 10),
+          mcHeight: parseInt(document.getElementById('mc-height')?.value || currentSettings?.mcHeight || '720', 10),
+          closeLauncherOnLaunch: !!document.getElementById('close-launcher-toggle')?.checked,
+          showLogsWindow: !!document.getElementById('show-logs-toggle')?.checked,
+          useProtocolConnect: !!document.getElementById('protocol-connect-toggle')?.checked
         };
+
+        if (settings.version) {
+          await ipcRenderer.invoke('update-profile-version', settings.version);
+        }
 
         await ipcRenderer.invoke('save-settings', settings);
         
@@ -1505,6 +1533,10 @@ function renderSettings() {
           ipcRenderer.send('toggle-fullscreen', false);
         }
         
+        currentSettings = JSON.parse(JSON.stringify(settings));
+        if (settings.javaPath) {
+          updateJavaStatusMessage('✓ Chemin Java sauvegardé', '#10b981');
+        }
         alert('✓ Parametres sauvegardes !');
         setTimeout(() => {
           ipcRenderer.send('close-settings-window');
@@ -1541,18 +1573,28 @@ function renderSettings() {
       try {
         const result = await ipcRenderer.invoke('check-updates');
         
+        const changelogContainer = document.getElementById('changelog-container');
+        const releaseNotesEl = document.getElementById('release-notes');
+        
         if (result.error) {
           statusEl.textContent = `❌ ${result.error}`;
           statusEl.style.color = '#ef4444';
           installBtn.style.display = 'none';
+          if (changelogContainer) changelogContainer.style.display = 'none';
         } else if (result.hasUpdate) {
           statusEl.innerHTML = `<span style="color: #10b981;">✅ Mise à jour disponible!</span><br><small style="color: #cbd5e1;">Vous êtes en v${result.currentVersion}, passer à v${result.latestVersion}</small>`;
           installBtn.style.display = 'block';
           if (versionEl) versionEl.textContent = `v${result.latestVersion}`;
+          
+          if (changelogContainer && releaseNotesEl) {
+            changelogContainer.style.display = 'block';
+            releaseNotesEl.textContent = result.releaseNotes || 'Aucune note de version disponible';
+          }
         } else {
           statusEl.innerHTML = `<span style="color: #10b981;">✓ À jour!</span><br><small style="color: #cbd5e1;">Vous utilisez la dernière version (v${result.currentVersion})</small>`;
           installBtn.style.display = 'none';
           if (versionEl) versionEl.textContent = `v${result.latestVersion}`;
+          if (changelogContainer) changelogContainer.style.display = 'none';
         }
         
         if (currentVersionEl) currentVersionEl.textContent = `v${result.currentVersion}`;
@@ -1561,6 +1603,8 @@ function renderSettings() {
         statusEl.textContent = `❌ Erreur: ${error.message}`;
         statusEl.style.color = '#ef4444';
         installBtn.style.display = 'none';
+        const changelogContainer = document.getElementById('changelog-container');
+        if (changelogContainer) changelogContainer.style.display = 'none';
       } finally {
         checkUpdatesBtn.disabled = false;
         checkUpdatesBtn.textContent = originalText;
@@ -1623,16 +1667,22 @@ function renderSettings() {
         if (version) {
           await ipcRenderer.invoke('update-profile-version', version);
         }
-        await ipcRenderer.invoke('save-settings', { 
-          ...(currentSettings || {}), 
+        const settings = {
+          ...(currentSettings || {}),
           defaultServer,
           javaPath,
+          version,
           mcWidth: width,
           mcHeight: height,
           closeLauncherOnLaunch: closeOnLaunch,
           showLogsWindow: showLogs,
           useProtocolConnect: useProtocol
-        });
+        };
+        await ipcRenderer.invoke('save-settings', settings);
+        currentSettings = JSON.parse(JSON.stringify(settings));
+        if (javaPath) {
+          updateJavaStatusMessage('✓ Chemin Java sauvegardé', '#10b981');
+        }
         alert('✓ Paramètres du jeu sauvegardés');
       } catch (e) {
         alert('✗ Erreur lors de la sauvegarde');
