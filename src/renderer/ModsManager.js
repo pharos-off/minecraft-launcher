@@ -1252,6 +1252,7 @@ class ModsManager {
           <div style="flex: 1;">
             <div style="color: #e2e8f0; font-weight: 600; margin-bottom: 4px;">${mod.title}</div>
             <div style="color: #94a3b8; font-size: 12px; margin-bottom: 4px;">${mod.description || 'Aucune description'}</div>
+            <div style="color: #64748b; font-size: 11px; margin-bottom: 4px;">Versions disponibles: ${Array.isArray(mod.game_versions) ? mod.game_versions.slice(0, 5).join(', ') + (mod.game_versions.length > 5 ? '...' : '') : 'Inconnues'}</div>
             <div style="color: #6366f1; font-size: 12px;">Téléchargements : ${mod.downloads.toLocaleString()}</div>
           </div>
           <button class="btn-download-modrinth" data-mod-id="${mod.project_id || mod.slug}" data-mod-name="${mod.title}" style="background: linear-gradient(135deg, #1bd96a 0%, #0fb857 100%); border: none; padding: 8px 12px; border-radius: 6px; color: white; cursor: pointer; font-weight: 600; margin-left: 10px; flex-shrink: 0;">Télécharger</button>

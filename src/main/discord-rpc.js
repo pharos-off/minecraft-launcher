@@ -5,7 +5,7 @@ const LauncherVersion = require('./launcher-version.js');
 class DiscordPresence extends EventEmitter {
   constructor(options = {}) {
     super();
-    
+
     // Configuration
     this.clientId = options.clientId || '1476358132623212699';
     this.autoReconnect = options.autoReconnect !== false;

@@ -1409,6 +1409,58 @@ renderMainLayout() {
     </svg>`;
     
     return `
+      <style>
+        .dev-status-banner {
+          margin: 20px 0;
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          border-radius: 12px;
+          padding: 16px;
+          position: relative;
+        }
+        .banner-content {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+        }
+        .banner-icon {
+          color: #3b82f6;
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+        .banner-text {
+          flex: 1;
+          font-size: 14px;
+          line-height: 1.5;
+          color: #e2e8f0;
+        }
+        .banner-text strong {
+          color: #60a5fa;
+        }
+        .banner-close {
+          background: none;
+          border: none;
+          color: #94a3b8;
+          cursor: pointer;
+          padding: 4px;
+          border-radius: 4px;
+          transition: all 0.2s;
+          flex-shrink: 0;
+        }
+        .banner-close:hover {
+          background: rgba(148, 163, 184, 0.1);
+          color: #cbd5e1;
+        }
+        @media (max-width: 768px) {
+          .banner-content {
+            flex-direction: column;
+            gap: 8px;
+          }
+          .banner-text {
+            font-size: 13px;
+          }
+        }
+      </style>
       <div class="home-view-modern">
         <!-- Hero Section avec Avatar -->
         <div class="hero-section">
@@ -1433,6 +1485,28 @@ renderMainLayout() {
                 <span style="display: inline-flex; align-items: center; gap: 6px;">${microsoftIcon} Compte Microsoft</span>
               </p>
             </div>
+          </div>
+        </div>
+
+        <!-- Bannière d'information sur le développement -->
+        <div class="dev-status-banner">
+          <div class="banner-content">
+            <div class="banner-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+            </div>
+            <div class="banner-text">
+              <strong>Fin du développement majeur</strong> - Le launcher Velkora a atteint la fin de ses grandes fonctionnalités. Seules des corrections de bugs sont désormais planifiées. Les grosses mises à jour ne sont pas envisagées (pour le moment). GitHub reste disponible pour proposer des fonctionnalités et signaler des bugs.
+            </div>
+            <button class="banner-close" onclick="this.parentElement.parentElement.style.display='none'">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
           </div>
         </div>
 
