@@ -357,7 +357,7 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  if (process.argv.includes('--dev')) {
+  if (process.argv.some(arg => arg === '--dev' || arg === 'dev')) {
     mainWindow.webContents.openDevTools();
   }
 

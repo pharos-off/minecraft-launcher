@@ -22,8 +22,6 @@
   Function StartOnBootPageLeave
     ${NSD_GetState} $StartOnBootCheckbox $StartOnBoot
   FunctionEnd
-
-  Page custom StartOnBootPage StartOnBootPageLeave
 !macroend
 
 !macro customInstall
@@ -37,3 +35,6 @@
 !macro customUnInstall
   DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "Velkora Client"
 !macroend
+
+; Insertion de la page personnalisée avant la page de fin
+Page custom StartOnBootPage StartOnBootPageLeave

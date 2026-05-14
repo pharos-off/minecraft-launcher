@@ -13,7 +13,12 @@ module.exports = {
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        nsis: {
+          oneClick: false,
+          allowToChangeInstallationDirectory: true
+        }
+      },
     },
     {
       name: '@electron-forge/maker-zip',
